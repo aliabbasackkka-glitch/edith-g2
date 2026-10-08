@@ -1,0 +1,34 @@
+{
+  "name": "edith",
+  "private": true,
+  "version": "2.0.0",
+  "description": "EDITH - a voice assistant for Even Realities G2 glasses",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "simulate": "evenhub-simulator http://localhost:5173",
+    "deploy": "npm run build && wrangler deploy",
+    "deploy:netlify": "npx netlify-cli deploy --prod",
+    "set-up-accounts": "node scripts/set-up-accounts.mjs",
+    "qr": "node scripts/qr.mjs",
+    "qr:dev": "node scripts/qr.mjs --dev",
+    "pack": "node scripts/sync-manifest.mjs && tsc --noEmit && vite build --mode package && node scripts/check-urls.mjs && evenhub pack app.json dist -o edith.ehpk --sdk-ver 0.0.15",
+    "icon": "node scripts/make-icon.mjs",
+    "set-moderation-key": "node scripts/set-moderation-key.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
+    "@evenrealities/even_hub_sdk": "^0.0.15",
+    "@netlify/blobs": "^11.0.3"
+  },
+  "devDependencies": {
+    "@evenrealities/evenhub-cli": "^0.1.14",
+    "@evenrealities/evenhub-simulator": "^0.9.5",
+    "firebase": "^12.19.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.0",
+    "wrangler": "^4.131.2"
+  }
+}

@@ -1,0 +1,16 @@
+// EDITH's server on Cloudflare Workers. See "Self-hosting" in the README.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "edith",
+  "main": "worker/index.mjs",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // The web app and privacy.html, built by `npm run build`.
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+
+  // Memories, chats, accounts and rate counters. Put the id from `npx wrangler d1 create edith` here.
+  "d1_databases": [{ "binding": "DB", "database_name": "edith", "database_id": "your-d1-database-id" }],
+
+  "observability": { "enabled": true }
+}

@@ -1,0 +1,32 @@
+# Dependencies and builds
+node_modules/
+dist/
+*.ehpk
+*.log
+
+# Secrets and local env (scripts and Vite also read .env and .env.production)
+.env
+.env.*
+!.env.example
+.dev.vars*
+*.enc
+keys.enc
+*-firebase-adminsdk-*.json
+*service-account*.json
+*.pem
+*.key
+*.p12
+
+# Local host state
+.netlify
+.wrangler
+
+# Generated media, renders and Blender files
+store/video/
+*.blend
+*.blend1
+
+# Internal notes
+store/listing*.md
+docs/roadmap-*.md
+edith-qr.png

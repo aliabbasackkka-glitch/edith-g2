@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>EDITH Privacy Policy</title>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --text: #232323;
+        --dim: #6b6b6b;
+        --line: rgba(35, 35, 35, 0.12);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #111111;
+          --text: #f2f2f2;
+          --dim: #9a9a9a;
+          --line: rgba(255, 255, 255, 0.12);
+        }
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 16px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+      }
+      main {
+        max-width: 680px;
+        margin: 0 auto;
+        padding: 40px 20px 64px;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 28px;
+        letter-spacing: -0.02em;
+      }
+      h2 {
+        margin: 32px 0 8px;
+        font-size: 18px;
+      }
+      p,
+      li {
+        margin: 0 0 10px;
+      }
+      ul {
+        padding-left: 20px;
+      }
+      .meta {
+        color: var(--dim);
+        font-size: 14px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 15px;
+      }
+      th,
+      td {
+        text-align: left;
+        vertical-align: top;
+        padding: 8px 8px 8px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .scroll {
+        overflow-x: auto;
+      }
+      a {
+        color: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>EDITH Privacy Policy</h1>
+      <p class="meta">Last updated: 6 October 2026</p>
+
+      <p>
+        EDITH is a voice assistant app for Even Realities G2 smart glasses, run by the operator named below.
+        It is not made by or affiliated with Even Realities. This policy explains what EDITH collects, why, where it
+        goes, and how you can delete it.
+      </p>
+
+      <h2>Who runs EDITH</h2>
+      <p>
+        EDITH's server is <b>YOUR-SERVER.workers.dev</b>, operated by <b>YOUR NAME</b> and hosted on Cloudflare. (Self-hosting? Replace these placeholders before you publish your build.)
+        Contact for privacy questions and data requests: <a href="mailto:privacy@example.com">privacy@example.com</a>.
+      </p>
+
+      <h2>Permissions EDITH asks for</h2>
+      <div class="scroll">
+        <table>
+          <tr><th>Permission</th><th>What it is used for</th></tr>
+          <tr>
+            <td>Glasses microphone (g2-microphone)</td>
+            <td>Records your voice while you hold or tap to ask a question, and for a few seconds after an answer so you can carry on without touching anything (Settings, "Keep listening after an answer", turns that off). The recording is sent to EDITH's server so your question can be transcribed and answered. Also used, only while you have Subtitles or Live translation turned on, to hear the person talking to you (see "Subtitles and live translation" below).</td>
+          </tr>
+          <tr>
+            <td>Phone microphone (phone-microphone)</td>
+            <td>Used the same way, only when the glasses microphone is unavailable.</td>
+          </tr>
+          <tr>
+            <td>Location (location)</td>
+            <td>EDITH 1.6 to 1.7 only; EDITH 2.0 does not ask for it. Only if you switch on "Use where you are" in Settings: your phone's position, rounded to about 100 m, so EDITH can give you the weather, your daily briefing and places near you. It is sent with your questions and not stored.</td>
+          </tr>
+          <tr>
+            <td>Camera (camera)</td>
+            <td>EDITH 1.7 only; EDITH 2.0 does not ask for it. Only when you tap "Photo" in EDITH: takes one picture, which is made smaller on your phone and sent with your next question so the AI can answer about it.</td>
+          </tr>
+          <tr>
+            <td>Photo album (album)</td>
+            <td>EDITH 1.7 only; EDITH 2.0 does not ask for it. Only when you tap "From album": you pick one photo, which is used the same way. EDITH cannot see the rest of your album.</td>
+          </tr>
+          <tr>
+            <td>Network (EDITH's server)</td>
+            <td>Sends your questions to EDITH's server and brings the answers back. The app connects to no other server. If you sign in to an account, that happens on EDITH's sign-in page in your phone's browser.</td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>What EDITH processes and stores</h2>
+      <ul>
+        <li>
+          <b>Voice recordings</b> are sent to the server, forwarded to the speech-to-text service of the AI provider
+          EDITH listens with (see below) to be transcribed, and then discarded. They are not stored. With
+          <b>Live words</b> on, and when EDITH listens with Groq, OpenAI, Mistral or xAI, the recording so far is also
+          transcribed every couple of seconds while you speak, so your words appear on the glasses. Those partial
+          recordings and their text are not stored either.
+        </li>
+        <li>
+          <b>Subtitles and live translation</b>, only while you have one of them turned on from the glasses menu: the
+          Even app labels each sound from the glasses as your own voice or someone else's. EDITH drops your own and
+          sends the other person's speech to EDITH's server in short pieces, a sentence or so at a time. Each piece is
+          turned into text by the speech-to-text service of the AI provider EDITH listens with and, for live
+          translation, translated into your language by the AI provider you chose. The text is sent back to your
+          glasses and the audio is discarded. <b>Neither the audio nor the text is stored</b> on the server or in your
+          chats; the lines on your glasses are forgotten when you stop. Listening stops when you double-tap, when EDITH
+          goes to the background, and after 45 minutes at most. Please tell the people you are talking to when you use
+          this, and follow the law where you are about recording or transcribing conversations.
+        </li>
+        <li>
+          <b>Saved chats</b>: the transcript of what you asked and EDITH's replies, saved as chats you can reopen,
+          search and delete. Up to 50 chats are kept, each with its last 100 messages and a title. EDITH gets the title
+          by asking the AI provider you chose to name the chat from its recent messages. Older versions of the app keep
+          a single conversation of the last 40 messages instead.
+        </li>
+        <li>
+          <b>Recall</b>: a shortened copy (up to 300 characters each) of every question and answer, kept for 12 months,
+          so EDITH can find what was said in past chats when you ask it to. Deleting a chat deletes its copies too.
+        </li>
+        <li>
+          <b>Checking for harmful use</b>: after your question has been answered, it is also sent to a separate AI
+          service that judges only whether it breaks EDITH's rules &mdash; making weapons, malware, threats, sexual
+          content involving children, fraud, drugs, hate speech, harassing a real person, adult sexual content, or
+          fishing for EDITH's keys or instructions. Nearly every question comes back as nothing, and <b>nothing is
+          kept about it</b>. If a question does break a rule, EDITH keeps the rule it broke, the checker's one-line
+          reason, the time, and up to the first 160 characters of that question, so the person who runs EDITH can
+          see why a phone was warned or banned. The most serious rules ban a phone at once; the others warn it, and
+          the third warning bans it. You are told on your phone when this happens. These records are kept so a ban
+          can be reviewed, and are not removed by Forget everything or Delete account; a ban is reversible, and
+          you can ask for a record to be removed &mdash; write to the address at the top of this page. <b>The checker
+          is instructed never to flag questions about self-harm, suicide, being in danger or being in distress, and
+          they must never lead to a ban.</b> This check never uses your own API key.
+        </li>
+        <li>
+          <b>Where you are</b>, only with "Use where you are" switched on: your phone rounds its position to about
+          100 m and sends it with each question, so weather, briefings and "near me" answers fit where you are. It is
+          not stored with your questions. To name the town and find places nearby, those rounded coordinates go to
+          OpenStreetMap (see below); the town they give back is kept on EDITH's server for a month under the
+          coordinates alone, with nothing that identifies you.
+        </li>
+        <li>
+          <b>Your calendar</b>, only if you add a calendar link: the private (secret) link you paste is saved on your
+          phone, and, if you sign in, encrypted with your account. Your phone asks EDITH's server to fetch that link
+          and the server passes the file straight back without storing it. Your phone reads the next two weeks of
+          events and sends their times, titles and places with a question, so EDITH can answer about them. They are
+          not stored on the server.
+        </li>
+        <li>
+          <b>Your smart home and your own actions</b>, only if you set them up: the Home Assistant address and access
+          token, and the names and web addresses of your actions, are saved on your phone and, when you sign in,
+          encrypted with your account. They are sent with a question so EDITH's server can ask your Home Assistant to
+          list or switch a device, or call the action's address. They are never stored or logged on the server.
+          Anything that unlocks or opens a way into your home only happens after you tap your glasses; that request
+          waits on the server for two minutes and then goes.
+        </li>
+        <li>
+          <b>Answer preferences</b>: answer length, how answers appear on the glasses, whether Live words is on, the
+          specialist EDITH answers as (such as Translator or Chef) and the language it translates into, the glasses menu
+          items and quick questions you pick, and any instructions you write for EDITH. They are saved on your phone.
+          Your length, instructions, specialist and translation language are sent with each question. The server keeps
+          only which specialist each saved chat used, unless you sign in (see below).
+        </li>
+        <li>
+          <b>Photos</b>, only the ones you send: a photo you take or pick goes with that question to the AI provider
+          you chose, so it can answer about it. EDITH's server passes it on and does not store it. It is kept in the
+          saved chat only as your question's text, never the picture itself.
+        </li>
+        <li>
+          <b>Your lists</b>, if you use them: the name of each list, what is on it and what you have ticked off, so
+          they are there on your glasses next time. Up to 12 lists of 40 items each. Deleting everything (Settings,
+          Your data) deletes them too.
+        </li>
+        <li>
+          <b>Memories</b>: short facts you tell EDITH about yourself, such as your name or preferences, so it can be
+          more helpful. Up to 200 are stored. EDITH is instructed not to save health details, passwords or financial
+          account numbers.
+        </li>
+        <li>
+          <b>A random device key</b>, created by the app, that keeps your data separate from other people's. Unless you
+          sign in to an account, EDITH does not know who you are.
+        </li>
+        <li>
+          <b>Your local date, time and time zone</b> are sent with each question so answers match your clock. They are
+          not stored.
+        </li>
+        <li>
+          <b>Your language</b>, the one you pick when you set up EDITH, is saved on your phone and sent with each
+          question so answers, speech recognition, headlines, weather and Wikipedia results use it. It is not stored on
+          the server.
+        </li>
+        <li>
+          <b>Your AI API keys</b> are saved on your phone, inside the Even Realities app. The keys needed for a question
+          are sent with it so the server can call your AI provider on your behalf, and the server never logs them. If
+          you sign in to an account, they are also stored on the server, encrypted, so they follow you (see below). If
+          you use <b>Connect OpenRouter</b> instead of pasting a key, OpenRouter makes the key for EDITH on your
+          OpenRouter account once you approve it there, and you can delete it from your OpenRouter account at any
+          time. While that happens, EDITH's server keeps only a one-time code from OpenRouter, for 15 minutes at most,
+          never the key itself.
+        </li>
+        <li>
+          <b>Your account</b>, only if you choose to sign in (with Google, or with an email and password): your account ID
+          from the sign-in service, your email address, your name, how you signed in, and when the account was created
+          and last used. While signed in, EDITH also stores your AI API keys, the AI and model you chose, your voice
+          setting, your language and your answer preferences (including your own instructions), encrypted with
+          AES-256-GCM, so they follow your account to another phone. Your memories, saved chats and recall copies
+          are then kept with your account instead of your device key. Each signed-in phone has its own sign-in
+          session, which ends when you sign out.
+        </li>
+      </ul>
+      <p>
+        Stored data is kept in EDITH's database on Cloudflare, linked to your random device key, or to your account
+        when you are signed in.
+      </p>
+
+      <h2>Services that receive data</h2>
+      <p>
+        <b>The AI provider you choose</b> receives your questions, conversation context, memories, language, answer
+        preferences and your own instructions to produce answers; the lines EDITH recalls from past chats when you ask
+        about them; the recent messages of a chat to name it; and, if it is the provider EDITH listens with, your voice
+        recordings to transcribe them. This happens with your own API key and under that provider's terms for your key.
+        Only the providers you add in EDITH's settings receive anything:
+      </p>
+      <ul>
+        <li>Google (Gemini API)</li>
+        <li>OpenAI (ChatGPT models)</li>
+        <li>Anthropic (Claude models)</li>
+        <li>xAI (Grok models)</li>
+        <li>Groq</li>
+        <li>OpenRouter, which forwards requests to the model you pick</li>
+        <li>DeepSeek</li>
+        <li>Mistral AI</li>
+      </ul>
+      <p>EDITH's server also uses these services, without sending anything that identifies you:</p>
+      <ul>
+        <li>
+          <b>The moderation service the operator configured</b> (for example Groq), on the operator's own key, receives the text of each answered question to check it against
+          EDITH's rules (see "Checking for harmful use" above). It never receives your API keys.
+        </li>
+        <li><b>Cloudflare</b> hosts EDITH's server and its database.</li>
+        <li><b>Open-Meteo</b> receives a city name and your language when you ask about the weather or for your daily briefing.</li>
+        <li><b>BBC News</b> and <b>Google News</b> are asked for current headlines in your language, including a topic when you ask about one.</li>
+        <li><b>DuckDuckGo</b> receives a search query when EDITH looks something up.</li>
+        <li><b>Wikipedia</b> receives a topic, in your language's edition, when EDITH looks it up.</li>
+        <li>
+          <b>OpenStreetMap (Nominatim)</b> receives your rounded coordinates, and what you are looking for, when you
+          use "Use where you are" or ask for places nearby.
+        </li>
+        <li><b>A web page you give EDITH</b> is fetched by EDITH's server so it can read and summarise it.</li>
+        <li>
+          <b>Your own Home Assistant</b>, and the web addresses of the actions you add, are called by EDITH's server
+          when you ask for something in your home or run one of your actions. They are yours, not the developer's.
+        </li>
+      </ul>
+      <p>
+        <b>If you sign in</b>, <b>Google Firebase Authentication</b> handles it: it receives your email address and
+        name, keeps your password if you sign in with email (stored hashed; EDITH never sees it), sends password
+        reset emails when you ask for one, and keeps a sign-in record for your account. If you choose
+        Google, Google confirms who you are under its own privacy policy. EDITH receives only the
+        details listed above.
+      </p>
+      <p>EDITH has no ads and no third-party analytics or tracking, and your data is never sold.</p>
+
+      <h2>Deleting your data</h2>
+      <ul>
+        <li>Open EDITH on your phone:</li>
+        <li><b>Delete</b>, next to a chat in <b>Chats</b>, or <b>Delete this chat</b> in <b>Settings</b>, deletes that chat and its recall copies.</li>
+        <li><b>Forget everything</b>, in <b>Settings</b>, deletes your memories, saved chats, recall copies and messages from the server.</li>
+        <li><b>Remove</b>, next to an AI in <b>Your AI</b>, deletes that API key from your phone, and from your account if you are signed in. Uninstalling EDITH also removes your keys and preferences from the phone.</li>
+        <li><b>Remove</b>, next to a calendar, deletes it from your phone and from your account. In EDITH 1.6 to 1.7, <b>Remove</b> next to a smart home, an action or a specialist you wrote does the same; EDITH 2.0 no longer uses those, and <b>Delete account</b> (or uninstalling EDITH) removes any it still holds.</li>
+        <li><b>Sign out</b> removes your account's keys, preferences and chats from that phone.</li>
+        <li>
+          <b>Delete account</b> deletes your account, the keys and preferences saved with it, its memories, saved chats,
+          recall copies and sign-in sessions, and your sign-in record at Firebase, and signs out every phone.
+        </li>
+        <li>
+          You can also email <a href="mailto:privacy@example.com">privacy@example.com</a> from your account's email
+          address (or, in older versions of the app, with the memory key shown in Settings), and your data will be
+          deleted.
+        </li>
+      </ul>
+
+      <p>
+        To keep EDITH working for everyone, the operator can delete a device key's or an account's stored data, and the
+        moderation check can block a device that breaks EDITH's rules.
+      </p>
+
+      <h2>Security</h2>
+      <p>
+        All connections between the app, EDITH's server and the services above use HTTPS. API keys saved with an
+        account are encrypted with AES-256-GCM using a key that only EDITH's server holds.
+      </p>
+
+      <h2>Children</h2>
+      <p>EDITH is not directed at children under 13 and does not knowingly collect their data.</p>
+
+      <h2>Changes</h2>
+      <p>If this policy changes, the date at the top will be updated and the new version posted at this address.</p>
+    </main>
+  </body>
+</html>

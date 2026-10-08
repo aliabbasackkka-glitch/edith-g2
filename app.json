@@ -1,0 +1,39 @@
+{
+    "package_id":  "com.example.edith",
+    "edition":  "202601",
+    "name":  "EDITH",
+    "version":  "2.0.0",
+    "min_app_version":  "2.2.10",
+    "min_sdk_version":  "0.0.15",
+    "tagline":  "Talk to any AI, read the answer on your glasses",
+    "description":  "Talk to EDITH and read the answer on your glasses. Hold the temple or ring, ask anything, and the answer appears in front of you; keep talking after an answer without touching anything. No computer or server to set up: connect OpenRouter in a few taps, or paste your own key for Groq (free and fast), Gemini (free), ChatGPT, Claude, Grok, DeepSeek or Mistral, and pick the model you want. Already run your own AI? Give EDITH its address. Turn on subtitles to read what the person in front of you is saying, or live translation to read it in your language. Ask another AI for a second opinion, dim the display for meetings, and add your calendar so EDITH knows what\u0027s next. EDITH searches the web, checks the weather and shows you the headlines. Chats are saved and named for you; sign in with Google or email to keep your AIs and chats on every phone. In English, German, French, Spanish, Italian, Chinese, Japanese, Korean or Arabic.",
+    "author":  "Your name",
+    "entrypoint":  "index.html",
+    "supported_languages":  [
+                                "en",
+                                "de",
+                                "fr",
+                                "es",
+                                "it",
+                                "zh",
+                                "ja",
+                                "ko"
+                            ],
+    "permissions":  [
+                        {
+                            "name":  "g2-microphone",
+                            "desc":  "Hears your question while you hold or tap to talk, and for a few seconds after an answer so you can carry on (you can turn that off). With Subtitles or Live translation on, it also hears the person talking to you; your AI turns their words into text and EDITH doesn\u0027t keep them."
+                        },
+                        {
+                            "name":  "phone-microphone",
+                            "desc":  "Hears your question with the phone microphone when the glasses microphone is unavailable."
+                        },
+                        {
+                            "name":  "network",
+                            "desc":  "Sends your questions to EDITH\u0027s server and brings the answers back.",
+                            "whitelist":  [
+                                              "https://edith.your-subdomain.workers.dev"
+                                          ]
+                        }
+                    ]
+}
