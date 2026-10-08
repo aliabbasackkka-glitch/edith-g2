@@ -62,6 +62,8 @@ export interface AnswerOptions {
   can?: string[]
   /** What EDITH heard in the room just now, for notes and "what did they just say?" (1.8.0). */
   heard?: string
+  /** Where the answer is read: EDITH's website or the PC app. The glasses app sends none. */
+  surface?: 'web' | 'desktop'
 }
 
 /** One calendar event as the phone sends it: already worded in the phone's language. */
@@ -190,6 +192,8 @@ export interface Access {
 }
 
 export interface StreamHandlers {
+  /** What the server is doing: "transcribing", then "thinking" before each model turn. */
+  onStatus?(stage: string): void
   onTranscript?(text: string): void
   onDelta?(text: string): void
   onReset?(): void
@@ -202,8 +206,8 @@ export class ApiError extends Error {
     message: string,
     /** The server's own kind ("refused", "overloaded", "blocked"...), for wording the problem. */
     readonly serverKind = '',
-    /** A ban: why it was given (1.8.0). */
-    readonly ban: { why?: string } = {},
+    /** A ban: why it was given, and when it lifts (1.8.0). */
+    readonly ban: { why?: string; until?: number } = {},
   ) {
     super(message)
   }
@@ -506,6 +510,9 @@ export class EdithApi {
           case 'transcript':
             handlers.onTranscript?.(String(event.text || ''))
             break
+          case 'status':
+            handlers.onStatus?.(String(event.stage || ''))
+            break
           case 'delta':
             handlers.onDelta?.(String(event.text || ''))
             break
@@ -622,7 +629,7 @@ function failure(status: number, data: Record<string, unknown>): ApiError {
   if (kind === 'quota' || /quota/i.test(message)) return new ApiError('quota', message, kind)
   if (kind === 'unclear') return new ApiError('unclear', message, kind)
   if (kind === 'model') return new ApiError('model', message, kind)
-  if (kind === 'blocked') return new ApiError('server', message, kind, { why: typeof data.why === 'string' ? data.why : undefined })
+  if (kind === 'blocked') return new ApiError('server', message, kind, { why: typeof data.why === 'string' ? data.why : undefined, until: typeof data.until === 'number' ? data.until : undefined })
   if (kind === 'network' || kind === 'timeout' || kind === 'overloaded') return new ApiError('offline', message, kind)
   return new ApiError('server', message, kind)
 }

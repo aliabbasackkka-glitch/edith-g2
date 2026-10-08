@@ -30,6 +30,8 @@
  *
  * EDITH 1.5.0 and later send a chatId (saved chats, lib/chats.mjs) and answer preferences
  * (style, instructions, specialist, translateTo; lib/prefs.mjs) with each question.
+ * EDITH's website and PC app also send surface: "web" or "desktop", which words the system
+ * prompt for a screen instead of the glasses (lib/persona.mjs); without it, it is the glasses.
  *
  * EDITH 1.6.0 and later also send what the phone has: X-Edith-Location (rounded coordinates,
  * used and not stored), the events it read from the wearer's calendar, their Home Assistant
@@ -93,7 +95,7 @@ import { moderationOn, pendingWarning, review, warningFor } from "./lib/moderati
 import { clearLists, getLists, saveList } from "./lib/lists.mjs";
 import { UnsafeAddressError, publicFetch } from "./lib/net.mjs";
 import { buildSystemPrompt } from "./lib/persona.mjs";
-import { answerPrefs, cleanCalendarEvents } from "./lib/prefs.mjs";
+import { answerPrefs, cleanCalendarEvents, surfaceOf } from "./lib/prefs.mjs";
 import {
   PROVIDERS,
   accessFor,
@@ -245,12 +247,15 @@ function normaliseHistory(raw) {
  * their phone read from their calendar, their smart home and their own actions. `can` decides
  * which tools are offered: saved chats can be recalled, older apps have none to search.
  */
-function worldFrom(req, body, chatId) {
+function worldFrom(req, body, chatId, surface = "glasses") {
   const location = readLocation(req.headers.get("x-edith-location"));
   const calendar = cleanCalendarEvents(body.calendar);
-  const home = cleanHome(body.home);
+  // Countdowns, alarms, lists, choices and home confirmations live on the glasses: the
+  // website and the PC app have none of them, so their tools are never offered there.
+  const glasses = surface === "glasses";
+  const home = glasses ? cleanHome(body.home) : null;
   const actions = cleanActions(body.actions);
-  const features = Array.isArray(body.can) ? body.can : [];
+  const features = glasses && Array.isArray(body.can) ? body.can : [];
   return {
     location,
     calendar,
@@ -268,6 +273,7 @@ function worldFrom(req, body, chatId) {
       home: Boolean(home),
       actions: actions.length > 0,
     },
+    surface,
   };
 }
 
@@ -277,7 +283,16 @@ async function converse({ chat, body, uk, userText, image, memories, history, em
   // What the glasses heard other people say, when the question is about that (1.8.0).
   // Capped: a long meeting is summarised from its most recent part, not refused.
   const heard = String(body.heard || "").trim().slice(-MAX_HEARD);
-  const system = buildSystemPrompt({ memories, localTime: body.localTime, modelLabel: modelLabel(chat), language, ...prefs, can: world.can, heard });
+  const system = buildSystemPrompt({
+    memories,
+    localTime: body.localTime,
+    modelLabel: modelLabel(chat),
+    language,
+    ...prefs,
+    can: world.can,
+    heard,
+    surface: world.surface,
+  });
   const convo = await startConversation(chat, { system, history, userText, image, tools: toolsFor(world.can), signal });
 
   const flags = { memoryChanged: false, timers: [], cancelTimers: false, confirm: null, list: null, pick: null };
@@ -479,7 +494,7 @@ async function handleChat(req, body, uk, device, background) {
   const language = languageOf(req);
   const prefs = answerPrefs(body);
   const chatId = cleanChatId(body.chatId);
-  const world = worldFrom(req, body, chatId);
+  const world = worldFrom(req, body, chatId, surfaceOf(body));
   const job = async (emit, signal) => {
     // Flagged since they last asked something? They hear about it with this answer, once
     // (1.8.0). Read alongside the answer so it never holds the answer up.

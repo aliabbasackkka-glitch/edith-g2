@@ -2,8 +2,8 @@
 // X-Edith-Language; without it (EDITH 1.2 and older) EDITH answers in whatever
 // language the user speaks.
 //
-// The glasses font has no Arabic letters, so Arabic answers are written in
-// Latin letters instead.
+// The glasses font has no Arabic letters, so Arabic answers on the glasses are
+// written in Latin letters instead. EDITH's website and PC app show Arabic script.
 
 export const LANGUAGES = {
   en: { name: "English", news: "hl=en-US&gl=US&ceid=US:en" },
@@ -23,8 +23,17 @@ export function languageOf(req) {
   return LANGUAGES[code] ? code : "";
 }
 
-/** The system prompt's rule for the answer language. */
-export function languageRule(code) {
+/**
+ * The system prompt's rule for the answer language. onGlasses is false for EDITH's website
+ * and PC app, whose screens show Arabic script.
+ */
+export function languageRule(code, onGlasses = true) {
+  if (code === "ar" && !onGlasses) {
+    return (
+      "LANGUAGE: The user chose Arabic in EDITH's settings. Always reply in Arabic, in Arabic script, even when a " +
+      "question or a tool result is in another language, unless the user asks for a different language.\n"
+    );
+  }
   if (code === "ar") {
     return (
       "LANGUAGE: The user chose Arabic. The glasses cannot show Arabic script, so always reply in Arabic " +

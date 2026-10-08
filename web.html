@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#050403" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      name="description"
+      content="E.D.I.T.H: talk to any AI by voice or text, in your browser. Bring your own key for Gemini, Groq, ChatGPT, Claude, Grok, OpenRouter, DeepSeek or Mistral. Keys stay in your browser."
+    />
+    <meta property="og:title" content="E.D.I.T.H - Talk to any AI" />
+    <meta property="og:description" content="Talk to any AI by voice or text, in your browser. Your keys stay on your device." />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%23050403'/%3E%3Ccircle cx='32' cy='32' r='25' fill='none' stroke='%23f5c542' stroke-width='2' opacity='.7'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%23f5c542' stroke-width='2'/%3E%3Cpath d='M32 32 L55 22 A25 25 0 0 1 57 32 Z' fill='%23f5c542' opacity='.55'/%3E%3Ccircle cx='32' cy='32' r='4' fill='%23fef991'/%3E%3C/svg%3E"
+    />
+    <title>E.D.I.T.H</title>
+  </head>
+  <body>
+    <div id="audioInd" role="button" tabindex="0" hidden>
+      &#9654;&nbsp; TAP ANYWHERE TO ENABLE AUDIO<span>AND TURN OFF SILENT MODE TO HEAR EDITH</span>
+    </div>
+
+    <div class="layout">
+      <header class="topbar">
+        <div class="left-brand">WEB EDITION</div>
+        <div class="center-brand">
+          <h1>E.D.I.T.H</h1>
+          <div class="tag">Talk to any AI</div>
+        </div>
+        <div class="right-time" aria-hidden="true">
+          <div class="t" id="clockTime">--:--:--</div>
+          <div class="d" id="clockDate">--</div>
+        </div>
+      </header>
+
+      <aside class="sidebar left" aria-label="Session monitor">
+        <div class="section-h">SESSION MONITOR</div>
+        <div class="sys-bar" id="mMsg" title="Questions asked this session">
+          <div class="top"><div class="lbl">MSGS</div><div class="val">0</div></div>
+          <div class="bar"><div class="bar-fill"></div></div>
+        </div>
+        <div class="sys-bar" id="mLat" title="How long the last answer took">
+          <div class="top"><div class="lbl">LAT</div><div class="val">--</div></div>
+          <div class="bar"><div class="bar-fill"></div></div>
+        </div>
+        <div class="sys-bar" id="mChars" title="Length of the last answer">
+          <div class="top"><div class="lbl">CHARS</div><div class="val">0</div></div>
+          <div class="bar"><div class="bar-fill"></div></div>
+        </div>
+        <div class="sys-bar" id="mMic" title="Microphone level while you talk">
+          <div class="top"><div class="lbl">MIC</div><div class="val">--</div></div>
+          <div class="bar"><div class="bar-fill"></div></div>
+        </div>
+        <div class="info-block">
+          <div class="info-row"><span class="k">UP</span><span class="v" id="iUp">--</span></div>
+          <div class="info-row"><span class="k">MODEL</span><span class="v" id="iModel">--</span></div>
+          <div class="info-row"><span class="k">AI</span><span class="v" id="iAi">--</span></div>
+          <div class="info-row"><span class="k">HOST</span><span class="v" id="iHost">EDITH CLOUD</span></div>
+        </div>
+      </aside>
+
+      <main class="center">
+        <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+        <div class="hud">
+          <canvas id="radar" width="600" height="600" aria-hidden="true"></canvas>
+          <div class="hud-center" id="hudCenter">E.D.I.T.H</div>
+        </div>
+        <div class="state-wrap">
+          <div class="state initialising" id="stateLbl" role="status">&#9679; INITIALISING</div>
+          <canvas class="wave" id="wave" width="400" height="56" aria-hidden="true"></canvas>
+          <div class="caption" id="caption" aria-hidden="true"><div class="caption-text" id="captionText"></div></div>
+        </div>
+      </main>
+
+      <aside class="sidebar right" aria-label="Controls">
+        <div>
+          <div class="section-h">&#9656; ACTIVITY LOG</div>
+          <div class="log-box" id="log" role="log" aria-live="polite" tabindex="0"></div>
+        </div>
+        <div class="panel">
+          <div class="section-h"><label for="cmd">&#9656; COMMAND INPUT</label></div>
+          <form class="input-row" id="cmdForm" autocomplete="off">
+            <input id="cmd" placeholder="Type a command..." autocomplete="off" maxlength="4000" enterkeyhint="send" />
+            <button type="submit" id="cmdSend" aria-label="Send">&#9656;</button>
+          </form>
+        </div>
+        <div class="panel">
+          <div class="section-h">&#9656; AI LINK</div>
+          <div class="input-row">
+            <div class="link-box none" id="aiLink">NO AI LINKED</div>
+            <button type="button" id="btnSetup">SETUP</button>
+          </div>
+          <div class="hint" id="aiLinkState"></div>
+        </div>
+        <div class="btn-row">
+          <div class="talk-row">
+            <button type="button" class="btn-strip green" id="talkBtn" aria-describedby="talkHint">&#9210;&nbsp; HOLD TO TALK</button>
+            <button type="button" class="btn-strip off" id="muteBtn" aria-pressed="false" aria-label="Read answers aloud" title="Read answers aloud: off">&#128263;</button>
+          </div>
+          <span class="sr-only" id="talkHint">Hold the button, or hold Space, while you speak. Release to send.</span>
+          <button type="button" class="btn-strip dim" id="fsBtn">&#9974;&nbsp; FULLSCREEN</button>
+          <button type="button" class="btn-strip green" id="chatsBtn" aria-haspopup="dialog">&#8801;&nbsp; SAVED CHATS</button>
+        </div>
+        <div class="panel">
+          <div class="section-h"><label for="imgQ">&#9656; ASK ABOUT A PHOTO</label></div>
+          <input id="imgQ" class="field photo-q" placeholder="Ask a question about the photo (optional)" autocomplete="off" maxlength="500" />
+          <label class="upload-area" id="imgArea">
+            <input type="file" id="imgFile" accept="image/*" />
+            <div id="imgTxt">&#128247;&nbsp; Tap to choose or take a photo</div>
+          </label>
+        </div>
+        <div class="panel">
+          <div class="section-h">&#9656; RECENT CHATS</div>
+          <div class="mem-list" id="memList"><div class="mem-item">loading...</div></div>
+          <div class="toggle-row">
+            <div class="lbl">Clear this conversation<div class="hint">Starts a new chat. Saved chats are kept.</div></div>
+            <button type="button" class="toggle-btn" id="clearBtn">&#10005; CLEAR</button>
+          </div>
+        </div>
+      </aside>
+
+      <div class="status-strip" aria-label="Status">
+        <div class="status-pill"><div class="k">AI CORE</div><div class="v" id="pAi">--</div></div>
+        <div class="status-pill amber"><div class="k">VOICE</div><div class="v" id="pVoice">--</div></div>
+        <div class="status-pill"><div class="k">MEMORY</div><div class="v" id="pMem">ON</div></div>
+      </div>
+
+      <footer class="footer wait" id="footer">
+        <div><span class="conn" id="status">CONNECTING...</span></div>
+        <div>E.D.I.T.H &nbsp;&middot;&nbsp; WEB EDITION</div>
+        <div class="links">
+          <a href="/privacy" id="privacyLink">PRIVACY</a>
+          &nbsp;&middot;&nbsp;
+          <a href="https://github.com/aliabbasackkka-glitch/edith-g2" target="_blank" rel="noopener">OPEN SOURCE &middot; MIT</a>
+        </div>
+      </footer>
+    </div>
+
+    <!-- Saved chats: a JARVIS-style modal -->
+    <div class="am-wrap" id="chats" role="dialog" aria-modal="true" aria-labelledby="chTitle" hidden>
+      <div class="am-box">
+        <div class="am-head">
+          <span id="chTitle">&#9670; SAVED CHATS</span>
+          <button type="button" class="am-close" id="chClose" aria-label="Close">&#10005;</button>
+        </div>
+        <div class="am-body">
+          <div class="am-row-head">
+            <span id="chCount">&mdash;</span>
+            <button type="button" class="am-mini ok" id="chNew">+ NEW CHAT</button>
+          </div>
+          <input class="am-search" id="chSearch" type="search" placeholder="&#128269; search your chats" autocomplete="off" maxlength="100" aria-label="Search your chats" />
+          <div class="am-list" id="chList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI setup: JARVIS's initialisation overlay -->
+    <div class="su-wrap" id="setup" role="dialog" aria-modal="true" aria-labelledby="suTitle" hidden>
+      <div class="su-box">
+        <button type="button" class="su-x" id="suClose" aria-label="Close">&#10005;</button>
+        <div class="su-title" id="suTitle">&#9672;&nbsp; INITIALISATION REQUIRED</div>
+        <div class="su-sub" id="suSub">Choose an AI and paste its key to start E.D.I.T.H.</div>
+        <div class="su-reason" id="suReason" role="alert" hidden></div>
+        <div class="su-sep"></div>
+
+        <div class="su-lbl">AI PROVIDER</div>
+        <div class="su-note su-note-top" id="suProvNote">Gemini and Groq give free keys.</div>
+        <div class="su-btns" id="suProviders" role="group" aria-label="AI provider"></div>
+
+        <div id="suBaseWrap" hidden>
+          <div class="su-lbl"><label for="suBase">SERVER ADDRESS</label></div>
+          <input class="su-in" id="suBase" type="url" inputmode="url" placeholder="https://ai.example.com/v1" spellcheck="false" autocomplete="off" />
+        </div>
+
+        <div class="su-lbl"><label for="suKey" id="suKeyLbl">API KEY</label></div>
+        <div class="su-row">
+          <input class="su-in" id="suKey" type="password" placeholder="Paste your key" spellcheck="false" autocomplete="off" autocapitalize="off" />
+          <button type="button" class="su-mini" id="suShow" aria-pressed="false">SHOW</button>
+          <button type="button" class="su-mini" id="suCheck">CHECK</button>
+        </div>
+        <div class="su-links"><a id="suKeyLink" href="#" target="_blank" rel="noopener noreferrer" hidden>GET A KEY &#8599;</a></div>
+        <div class="su-status" id="suCheckStatus" role="status"></div>
+
+        <div id="suModelWrap" hidden>
+          <div class="su-lbl"><label for="suModel">MODEL</label></div>
+          <select class="su-in" id="suModel"></select>
+        </div>
+        <div id="suModelTextWrap" hidden>
+          <div class="su-lbl"><label for="suModelText">MODEL NAME</label></div>
+          <input class="su-in" id="suModelText" type="text" placeholder="e.g. llama3.1" spellcheck="false" autocomplete="off" />
+        </div>
+
+        <div id="suVoiceWrap" hidden>
+          <div class="su-sep"></div>
+          <div class="su-lbl">VOICE KEY (OPTIONAL)</div>
+          <div class="su-note su-note-top" id="suVoiceNote"></div>
+          <div class="su-btns" id="suVoiceProviders" role="group" aria-label="Voice provider"></div>
+          <div class="su-lbl"><label for="suVoiceKey">KEY FOR VOICE</label></div>
+          <input class="su-in" id="suVoiceKey" type="password" placeholder="Paste a key for voice" spellcheck="false" autocomplete="off" autocapitalize="off" />
+          <div class="su-links"><a id="suVoiceLink" href="#" target="_blank" rel="noopener noreferrer" hidden>GET A KEY &#8599;</a></div>
+        </div>
+
+        <div class="su-sep"></div>
+        <button type="button" class="su-wide" id="suConnect">&#9656;&nbsp; CONNECT OPENROUTER</button>
+        <div class="su-note">No key to copy: sign in to OpenRouter in a new tab and approve E.D.I.T.H.</div>
+        <div id="suConnectWait" hidden>
+          <div class="su-status" id="suConnectStatus" role="status"></div>
+          <div class="su-links">
+            <a id="suConnectLink" href="#" target="_blank" rel="noopener noreferrer" hidden>OPEN OPENROUTER &#8599;</a>
+            <button type="button" class="su-link-btn" id="suConnectCancel">CANCEL</button>
+          </div>
+        </div>
+
+        <div class="su-sep"></div>
+        <div class="su-lbl">ANSWER LENGTH</div>
+        <div class="su-btns" id="suStyle" role="group" aria-label="Answer length"></div>
+        <div class="su-lbl"><label for="suLang">ANSWER LANGUAGE</label></div>
+        <select class="su-in" id="suLang"></select>
+
+        <div class="su-status" id="suSaveStatus" role="status"></div>
+        <div class="su-sep"></div>
+        <button type="button" class="su-init" id="suSave">&#9656;&nbsp; INITIALISE SYSTEMS</button>
+
+        <div id="suForgetWrap" hidden>
+          <div class="su-sep"></div>
+          <div class="su-forget">
+            <div>Forget this browser<div class="hint">Deletes memories, saved chats and lists, and the keys kept here.</div></div>
+            <button type="button" class="am-danger" id="suForget">&#10005; FORGET</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/web/main.ts"></script>
+  </body>
+</html>

@@ -13,6 +13,51 @@ const LENGTH_RULES = {
     "- For lists or steps, one item per line starting with '- '.\n",
 };
 
+// A screen has more room than the glasses, so a detailed answer may run a little longer there.
+const SCREEN_LENGTH_RULES = {
+  ...LENGTH_RULES,
+  detailed: "- Lead with the answer, then explain: up to ten sentences, under 1500 characters.\n" +
+    "- For lists or steps, one item per line starting with '- '.\n",
+};
+
+/**
+ * Where the reply is read: on the G2 glasses (every app that sends no surface), on EDITH's
+ * website in a browser, or in the EDITH app on a computer. The glasses lines are the prompt
+ * as it always was, word for word.
+ */
+const SURFACES = {
+  glasses: {
+    identity: "a voice assistant running on the user's Even Realities G2 smart glasses",
+    display: "YOUR REPLY IS SHOWN AS TEXT ON A SMALL MONOCHROME HEADS-UP DISPLAY IN THE USER'S GLASSES. " +
+      "The glasses have no speaker, so never say you are speaking aloud.\n",
+    format: "FORMAT (the display cannot render anything else):\n",
+    lengths: LENGTH_RULES,
+  },
+  web: {
+    identity: "an AI assistant the user talks to on EDITH's website, in their web browser, by typing or by voice",
+    display: "YOUR REPLY IS SHOWN AS TEXT IN A CHAT ON THE USER'S SCREEN. " +
+      "Their browser reads it aloud only if they turned that on, so never claim to be speaking.\n",
+    format: "FORMAT (the chat shows plain text only):\n",
+    lengths: SCREEN_LENGTH_RULES,
+    cannot: "WHAT YOU CANNOT DO: you cannot see the user's screen, camera or surroundings unless they send you a photo, " +
+      "you cannot control their computer, phone or other devices, and you cannot set timers, alarms or reminders here. " +
+      "Say so plainly and briefly if asked. The user can send you a photo with ASK ABOUT A PHOTO on EDITH's website; " +
+      "when one arrives with a question, answer about what is in it.",
+  },
+  desktop: {
+    identity: "an AI assistant running as an app on the user's computer; they talk to you by typing or by voice",
+    display: "YOUR REPLY IS SHOWN AS TEXT ON THE USER'S SCREEN AND MAY BE READ ALOUD BY A VOICE, " +
+      "so write it to read well aloud: plain, natural sentences, no symbol-heavy text, " +
+      "and say a symbol's meaning in words when it matters.\n",
+    format: "FORMAT (the app shows plain text only):\n",
+    lengths: SCREEN_LENGTH_RULES,
+    cannot: "WHAT YOU CANNOT DO: you cannot see the user's screen, camera or surroundings unless they send you a photo, " +
+      "you cannot control their computer, phone or other devices, and you cannot set timers, alarms or reminders here. " +
+      "Say so plainly and briefly if asked. The user can send you a photo with ASK ABOUT A PHOTO in the EDITH app; " +
+      "when one arrives with a question, answer about what is in it.",
+  },
+};
+
 function specialistRules(specialist, translateTo, language, own) {
   // A specialist the wearer made themselves (EDITH 1.6.0): their own name and instructions.
   if (specialist === "custom" && own?.instructions) {
@@ -45,6 +90,7 @@ function specialistRules(specialist, translateTo, language, own) {
 /**
  * language: the code the phone picked at setup, or "" (older apps) to answer in the user's own language.
  * style, instructions, specialist and translateTo come from the wearer's settings (EDITH 1.5.0 and later).
+ * surface: where the reply is read, "glasses" (the default), "web" or "desktop" (EDITH's website and PC app).
  */
 export function buildSystemPrompt({
   memories,
@@ -56,9 +102,15 @@ export function buildSystemPrompt({
   specialist = "general",
   translateTo = "",
   custom = null,
-  can = {},
+  can: offered = {},
   heard = "",
+  surface = "glasses",
 }) {
+  const where = SURFACES[surface] || SURFACES.glasses;
+  const glasses = where === SURFACES.glasses;
+  // Countdowns, alarms, lists, choices and home confirmations happen on the glasses, so a
+  // screen is never told it has them.
+  const able = glasses ? offered : { ...offered, timers: false, alarms: false, lists: false, pick: false, home: false };
   const clientClock = String(localTime || "").replace(/[^\w\s,:()+\/-]/g, "").slice(0, 80);
   const mode = specialistRules(specialist, translateTo, language, custom);
 
@@ -75,7 +127,7 @@ export function buildSystemPrompt({
   }
 
   // What the glasses heard other people say, when the wearer asks about it (1.8.0).
-  const roomStr = heard
+  const roomStr = heard && glasses
     ? "[WHAT THE GLASSES JUST HEARD]\n" +
       "Transcribed from the people around the user, oldest first. The user did not say this - they heard it.\n" +
       "Work only from what is here: if it does not say, say so rather than filling the gap. It is transcribed\n" +
@@ -90,16 +142,15 @@ export function buildSystemPrompt({
     memStr +
     roomStr +
     "EDITH CORE PROTOCOL\n" +
-    "IDENTITY: You are EDITH, a voice assistant running on the user's Even Realities G2 smart glasses. " +
+    `IDENTITY: You are EDITH, ${where.identity}. ` +
     "Calm, precise, friendly, with a light dry wit. Use the user's first name when you know it.\n" +
     (modelLabel ? `The AI model answering right now is ${modelLabel}, chosen by the user in EDITH's settings.\n` : "") +
-    "YOUR REPLY IS SHOWN AS TEXT ON A SMALL MONOCHROME HEADS-UP DISPLAY IN THE USER'S GLASSES. " +
-    "The glasses have no speaker, so never say you are speaking aloud.\n" +
-    "FORMAT (the display cannot render anything else):\n" +
+    where.display +
+    where.format +
     "- Plain text only. No markdown, asterisks, headings, tables or emoji.\n" +
-    (LENGTH_RULES[style] || LENGTH_RULES.normal) +
+    (where.lengths[style] || where.lengths.normal) +
     "- Prefer digits and units: 18°C, 3:45 PM, 12 km.\n" +
-    (language ? languageRule(language) : "") +
+    (language ? languageRule(language, glasses) : "") +
     `STYLE: Never guess; call the appropriate tool.${language ? "" : " Respond in the user's language."}\n` +
     mode +
     (instructions
@@ -109,48 +160,50 @@ export function buildSystemPrompt({
     "\n" +
     "CAPABILITIES (you run on a server):\n" +
     "- Memory: you remember who this user is across sessions.\n" +
-    (can.recall
+    (able.recall
       ? "- Recall: call recall_conversations when the user refers to something from an earlier conversation " +
         "(earlier today, last week, months ago) that isn't in this chat.\n"
       : "") +
     "- Web and info: web search, Wikipedia summaries, weather for any city, news headlines.\n" +
     "- Links: when the user gives you a web address, call read_link to read the page before answering.\n" +
-    (can.location
+    (able.location
       ? "- Where they are: leave the city out of weather_report and daily_briefing to use it, and call " +
         "nearby_places for anything around them. It looks 2 km out and widens on its own when nothing is close; " +
         "pass within_km (up to 25) when they ask for further afield.\n"
       : "") +
-    (can.calendar
+    (able.calendar
       ? "- Calendar: call calendar_events for what is on today, tomorrow or this week. You can read it but not " +
         "change it" +
-        (can.alarms ? ", so when they ask to be reminded at a time, set an alarm instead and say so.\n" : ".\n")
+        (able.alarms ? ", so when they ask to be reminded at a time, set an alarm instead and say so.\n" : ".\n")
       : "") +
-    (can.timers ? "- Timers: call set_timer for anything timed, and the glasses show the countdown.\n" : "") +
-    (can.alarms ? "- Alarms: call set_alarm for a time of day, e.g. \"wake me at 7\". It rings while EDITH is open.\n" : "") +
-    (can.lists
+    (able.timers ? "- Timers: call set_timer for anything timed, and the glasses show the countdown.\n" : "") +
+    (able.alarms ? "- Alarms: call set_alarm for a time of day, e.g. \"wake me at 7\". It rings while EDITH is open.\n" : "") +
+    (able.lists
       ? "- Lists: call show_list whenever they mention a shopping list, packing list or things to do. It saves the " +
         "list and puts it on their glasses, where a tap ticks items off. my_lists says what lists they have.\n"
       : "") +
-    (can.pick
+    (able.pick
       ? "- Choices: when the right answer depends on which one they want (which café, which train, which of your " +
         "suggestions), call ask_to_pick with the options. They tap one and it arrives as their next message.\n"
       : "") +
-    (can.home
+    (able.home
       ? "- Smart home: call home_status to see what there is, and home_control to switch it. Anything that unlocks " +
         "or opens a way into the home only happens once the user taps the glasses, so say it is waiting for their tap; " +
         "never say it is done.\n"
       : "") +
-    (can.actions ? "- Their own actions: call run_action with the name of the action they mean.\n" : "") +
+    (able.actions ? "- Their own actions: call run_action with the name of the action they mean.\n" : "") +
     "- Daily briefing: when the user asks to be briefed, call daily_briefing with their city from memory. If you don't " +
     "know their city, ask for it. Present it as short lines: the date, the weather in one line, then up to three " +
     "headlines, each on its own line starting with '- '.\n\n" +
-    "WHAT YOU CANNOT DO: the G2 glasses have no camera, and you cannot control the user's phone, computer or other " +
-    "devices. Say so plainly and briefly if asked." +
-    // EDITH 1.7 has a Photo button (those phones also send "pick"); 2.0 has none, so it isn't offered there.
-    (can.pick
-      ? " The user can still send you a photo from their phone (Photo, under the text box in EDITH); when one " +
-        "arrives with a question, answer about what is in it."
-      : "") +
+    (glasses
+      ? "WHAT YOU CANNOT DO: the G2 glasses have no camera, and you cannot control the user's phone, computer or other " +
+        "devices. Say so plainly and briefly if asked." +
+        // EDITH 1.7 has a Photo button (those phones also send "pick"); 2.0 has none, so it isn't offered there.
+        (able.pick
+          ? " The user can still send you a photo from their phone (Photo, under the text box in EDITH); when one " +
+            "arrives with a question, answer about what is in it."
+          : "")
+      : where.cannot) +
     "\n\n" +
     "SAFETY (always):\n" +
     "- Do not diagnose medical conditions or give legal, financial or investment advice. Give general information " +

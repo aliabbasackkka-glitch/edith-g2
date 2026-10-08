@@ -124,6 +124,12 @@ export const cleanCalendarEvents = (list) =>
     .filter((e) => e.when && e.title)
     .slice(0, MAX_EVENTS);
 
+/**
+ * Where a question's answer is read: "web" (EDITH's website) or "desktop" (the PC app), which
+ * send it with each question; anything else, and every app that sends none, is the glasses.
+ */
+export const surfaceOf = (body) => (body?.surface === "web" || body?.surface === "desktop" ? body.surface : "glasses");
+
 /** The answer preferences from a chat request, with defaults for anything missing (older apps). */
 export function answerPrefs(body) {
   return {

@@ -37,9 +37,10 @@ export default defineConfig(({ command, mode }) => {
       target: 'esnext',
       rollupOptions: {
         // The sign-in and OpenRouter pages belong to EDITH's server: never part of the packaged app.
+        // web.html is EDITH's website for everyone (served at /web), also never packaged.
         input: packaged
           ? { main: 'index.html' }
-          : { main: 'index.html', signin: 'signin.html', connect: 'connect.html' },
+          : { main: 'index.html', signin: 'signin.html', connect: 'connect.html', web: 'web.html' },
       },
     },
   }

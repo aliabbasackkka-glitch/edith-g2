@@ -4,6 +4,14 @@ A voice assistant for [Even Realities G2](https://www.evenrealities.com/) smart 
 Hold the temple or ring, ask anything, and the answer appears in front of you as it is
 written. EDITH talks to the AI you choose, with your own key.
 
+No glasses? EDITH also runs **in your browser** and **on your PC**, with the same AIs, memories
+and saved chats:
+
+- **Website:** [edith.starktech.workers.dev/web](https://edith.starktech.workers.dev/web) - pick an
+  AI, paste your own key (it stays in your browser), then type or hold to talk.
+- **PC app:** [`desktop/edith.py`](desktop/) - a desktop window with a live HUD that speaks its
+  answers. Double-click `desktop/Run EDITH.bat` on Windows, or run `python desktop/edith.py`.
+
 | | |
 | --- | --- |
 | ![Home screen](store/screenshots/2.0/1-home.png) | ![An answer](store/screenshots/2.0/2-answer.png) |
@@ -33,6 +41,24 @@ written. EDITH talks to the AI you choose, with your own key.
   on every phone.
 - **Nine languages:** English, German, French, Spanish, Italian, Chinese, Japanese, Korean
   and Arabic.
+
+## Website and PC app
+
+Both talk to the same server as the glasses and send `surface: "web"` or `"desktop"` with each
+question, so EDITH words its answers for a screen instead of the glasses.
+
+- **Website** (`web.html`, `src/web/`): built with the rest of the site and served at `/web`.
+  Every visitor brings their own key, which is checked by the server and then kept only in that
+  browser's local storage. Hold the talk button or Space to speak; answers stream into the activity
+  log. Optional: read answers aloud with the browser's voice.
+- **PC app** (`desktop/edith.py`, one file, Python 3.9+): PyQt6 window with a system monitor, an
+  animated HUD and a typewriter activity log. Hold **Space** to talk, **F4** turns voice replies on
+  or off, **F11** goes fullscreen. Missing packages (PyQt6, sounddevice, numpy, requests) are
+  installed on first run; spoken replies use [edge-tts](https://pypi.org/project/edge-tts/),
+  installed the first time voice is used. Settings and keys live in `~/.edith/config.json`.
+  It uses `https://edith.starktech.workers.dev` unless you pass `--server https://your-server`
+  or set `EDITH_URL`. `--selftest` runs its checks without opening a window; `--reset` forgets
+  this PC.
 
 ## How it works
 
@@ -139,6 +165,8 @@ npm run qr:dev     # open the dev server on your glasses (same Wi-Fi)
 | `src/recorder.ts`, `src/room.ts` | Microphone audio for questions, and for subtitles |
 | `src/api.ts` | The client for the server |
 | `src/i18n/` | Phone and glasses text in nine languages |
+| `web.html`, `src/web/` | EDITH's website (served at `/web`) |
+| `desktop/` | The PC app: `edith.py`, `Run EDITH.bat` and its README |
 | `signin.html`, `connect.html` | Browser pages for signing in and connecting OpenRouter (served by your server, not packed) |
 | `server/app.mjs` | Every `/api` route |
 | `server/lib/providers/` | The AI providers: Gemini, Claude and OpenAI-compatible adapters |
