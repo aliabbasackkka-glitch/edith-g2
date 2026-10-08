@@ -161,6 +161,4 @@ own server, update it with your own details.
 
 ## License
 
-EDITH is triple-licensed. You may use it under the terms of the
-[MIT License](LICENSE-MIT), the [Apache License 2.0](LICENSE-APACHE), or the
-[GNU Affero General Public License v3.0 or later](LICENSE-AGPL), at your option.
+EDITH is released under the [MIT License](LICENSE).
