@@ -136,10 +136,10 @@ try:
 except Exception:
     psutil = None
 
-from PyQt6.QtCore import (QBuffer, QByteArray, QEvent, QIODevice, QLocale, QObject, QPointF, QRectF, Qt,  # noqa: E402
+from PyQt6.QtCore import (QBuffer, QByteArray, QEvent, QIODevice, QLineF, QLocale, QObject, QPointF, QRectF, Qt,  # noqa: E402
                           QTimer, QUrl, pyqtSignal)
 from PyQt6.QtGui import (QBrush, QColor, QFont, QFontMetrics, QGuiApplication, QImage, QKeySequence,  # noqa: E402
-                         QPainter, QPen, QShortcut, QTextCharFormat, QTextCursor)
+                         QPainter, QPen, QRadialGradient, QShortcut, QTextCharFormat, QTextCursor)
 from PyQt6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout,  # noqa: E402
                              QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
                              QPushButton, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget)
@@ -172,6 +172,11 @@ VOICE_FOR_LANGUAGE = {"en": "en-GB-SoniaNeural", "de": "de-DE-KatjaNeural", "fr"
                       "es": "es-ES-ElviraNeural", "it": "it-IT-ElsaNeural", "zh": "zh-CN-XiaoxiaoNeural",
                       "ja": "ja-JP-NanamiNeural", "ko": "ko-KR-SunHiNeural", "ar": "ar-SA-ZariyahNeural"}
 STYLES = [("short", "SHORT"), ("normal", "NORMAL"), ("detailed", "DETAILED")]
+VOICE_SOURCES = ("edge", "chat", "voice")  # a free voice, the AI company's voice, or the voice key's company
+VOICE_SAMPLE = "Hi, I'm EDITH. This is how I'll sound when I answer you."
+# Keys that say which company they are from: pasting one picks that company (2.1).
+KEY_COMPANIES = [("anthropic", r"^sk-ant-"), ("openrouter", r"^sk-or-"), ("groq", r"^gsk_"), ("xai", r"^xai-"),
+                 ("gemini", r"^(AIza|AQ\.)"), ("openai", r"^sk-(proj|svcacct|admin)-")]
 TOOL_CAPTIONS = {"weather_report": "◆ Checking the weather…", "web_search": "◆ Searching the web…",
                  "wikipedia": "◆ Looking it up…", "news_headlines": "◆ Reading the news…",
                  "daily_briefing": "◆ Preparing your briefing…", "recall_conversations": "◆ Remembering…"}
@@ -375,6 +380,54 @@ def speech_text(text):
     return t[:1500]
 
 
+def company_of_key(key):
+    """The AI company a pasted key obviously belongs to, or ""."""
+    k = str(key or "").strip()
+    return next((cid for cid, rx in KEY_COMPANIES if re.match(rx, k)), "")
+
+
+def speech_pieces(text, first=160, most=380):
+    """An answer cut for speaking: a short first piece (so the voice starts quickly), then sentences."""
+    clean = re.sub(r"\s+", " ", str(text or "")).strip()
+    sentences = re.findall(r"[^.!?。！？]+[.!?。！？]+[\"')\]]*\s*|[^.!?。！？]+$", clean) or [clean]
+    out, cur = [], ""
+    for sent in sentences:
+        limit = first if not out else most
+        if cur and len(cur + sent) > limit:
+            out.append(cur.strip()); cur = ""
+        cur += sent
+        while len(cur) > most:
+            cut = cur.rfind(" ", 0, most)
+            cut = cut if cut > 40 else most
+            out.append(cur[:cut].strip()); cur = cur[cut:]
+    if cur.strip():
+        out.append(cur.strip())
+    return [x for x in out if x]
+
+
+def wav_envelope(data, step_ms=20):
+    """How loud a WAV file is every step_ms, 0-1, so the core can bounce with the voice."""
+    if np is None:
+        return []
+    try:
+        with wave.open(io.BytesIO(data)) as w:
+            rate, width, chans = w.getframerate(), w.getsampwidth(), w.getnchannels()
+            frames = w.readframes(w.getnframes())
+        if width != 2:
+            return []
+        x = np.frombuffer(frames, dtype="<i2").astype(np.float32)
+        if chans > 1:
+            x = x[: len(x) // chans * chans].reshape(-1, chans).mean(axis=1)
+        n = max(1, int(rate * step_ms / 1000))
+        usable = len(x) // n * n
+        if not usable:
+            return []
+        rms = np.sqrt(np.mean(np.square(x[:usable].reshape(-1, n)), axis=1))
+        return [float(v) for v in np.clip(rms / 6000.0, 0.0, 1.0)]
+    except Exception:
+        return []
+
+
 def clean_history(raw):
     out = []
     for h in raw if isinstance(raw, list) else []:
@@ -400,8 +453,12 @@ def clean_providers(raw):
             if isinstance(m, dict) and m.get("id"):
                 models.append({"id": str(m["id"])[:200], "name": str(m.get("name") or m["id"])[:200],
                                "label": str(m.get("label") or "")[:120]})
+        voices = [{"id": str(v["id"])[:40], "name": str(v.get("name") or v["id"])[:40], "note": str(v.get("note") or "")[:60]}
+                  for v in (p.get("voices") if isinstance(p.get("voices"), list) else [])
+                  if isinstance(v, dict) and re.fullmatch(r"[A-Za-z0-9_-]{1,40}", str(v.get("id", "")))]
         out.append({"id": str(p["id"]), "label": str(p.get("label") or p["id"])[:60], "note": str(p.get("note") or "")[:120],
                     "keyUrl": str(p.get("keyUrl") or "")[:200], "voice": bool(p.get("voice")),
+                    "voices": voices[:60], "defaultVoice": str(p.get("defaultVoice") or "")[:40],
                     "defaultModel": str(p.get("defaultModel") or "")[:200], "models": models[:80],
                     "needsBase": bool(p.get("needsBase")), "keyOptional": bool(p.get("keyOptional"))})
     return out[:24]
@@ -497,7 +554,7 @@ class Config:
         return {"version": 1, "server": "", "device_id": new_device_id(), "chat_id": "", "chat_used": 0,
                 "provider": "", "keys": {}, "models": {}, "voice_provider": "", "voice_key": "",
                 "style": "normal", "language": lang, "voice_on": True,
-                "voice_name": VOICE_FOR_LANGUAGE.get(lang, "en-GB-SoniaNeural"), "global_ptt": False}
+                "voice_name": VOICE_FOR_LANGUAGE.get(lang, "en-GB-SoniaNeural"), "voice_source": "edge", "global_ptt": False}
 
     def load(self):
         try:
@@ -510,7 +567,7 @@ class Config:
         if not isinstance(raw, dict):
             return
         d = self.data
-        for k in ("server", "chat_id", "provider", "voice_provider", "voice_key", "voice_name"):
+        for k in ("server", "chat_id", "provider", "voice_provider", "voice_key", "voice_name", "voice_source"):
             if isinstance(raw.get(k), str):
                 d[k] = raw[k]
         if isinstance(raw.get("device_id"), str) and _DEVICE_RE.match(raw["device_id"]):
@@ -532,7 +589,11 @@ class Config:
         if isinstance(raw.get("models"), dict):
             d["models"] = {str(p): [m for m in v if isinstance(m, dict) and m.get("id")]
                            for p, v in raw["models"].items() if isinstance(v, list)}
-        if d["voice_name"] not in VOICE_IDS:
+        if d["voice_source"] not in VOICE_SOURCES:
+            d["voice_source"] = "edge"
+        if d["voice_source"] != "edge" and not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", d["voice_name"]):
+            d["voice_source"] = "edge"
+        if d["voice_source"] == "edge" and d["voice_name"] not in VOICE_IDS:
             d["voice_name"] = VOICE_FOR_LANGUAGE.get(d["language"], "en-GB-SoniaNeural")
 
     def save(self):
@@ -734,6 +795,26 @@ class EdithApi:
                 h["X-Voice-Key"] = a["voice_key"]
         if extra:
             h.update(extra)
+        return h
+
+    def speak(self, text, voice, via="chat", headers=None):
+        """Text read aloud by an AI company's own voice: a WAV file's bytes (2.1)."""
+        resp = self._request("POST", "/speak", self.headers(headers), {"text": text, "voice": voice, "via": via})
+        if resp.status_code != 200:
+            raise failure(resp.status_code, self._json(resp))
+        return resp.content
+
+    @staticmethod
+    def key_headers(provider, key, voice_provider="", voice_key=""):
+        """Key headers for keys typed in settings and not saved yet (the voice sample)."""
+        h = {}
+        if provider:
+            h["X-AI-Provider"] = provider
+            if key:
+                h["X-AI-Key"] = key
+        if voice_provider and voice_key:
+            h["X-Voice-Provider"] = voice_provider
+            h["X-Voice-Key"] = voice_key
         return h
 
     def _request(self, method, path, headers=None, body=None, stream=False):
@@ -939,6 +1020,7 @@ class Recorder:
         self._chunks = []
         self._rate = self.RATE
         self.started = 0.0
+        self.level = 0.0  # how loud the microphone is right now, 0-1, for the HUD
 
     @staticmethod
     def probe():
@@ -961,6 +1043,11 @@ class Recorder:
 
         def callback(indata, frames, time_info, status):
             self._chunks.append(indata.copy())
+            try:
+                rms = float(np.sqrt(np.mean(np.square(indata.astype(np.float32)))))
+                self.level = min(1.0, rms / 2600.0)
+            except Exception:
+                pass
         try:
             stream = sd.InputStream(samplerate=self.RATE, channels=1, dtype="int16", callback=callback)
             self._rate = self.RATE
@@ -975,6 +1062,7 @@ class Recorder:
 
     def stop(self):
         stream, self._stream = self._stream, None
+        self.level = 0.0
         if stream is None:
             return None
         try:
@@ -1135,23 +1223,80 @@ class _SysMetrics:
         with self._lock: return {"cpu":self.cpu,"mem":self.mem,"net":self.net,"gpu":self.gpu,"tmp":self.tmp}
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
-# ║  UI — HUD CANVAS                                                         ║
+# ║  UI — HUD: THE CORE (a network sphere of light that bounces as it talks)  ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
+def _mix(a,b,t):
+    """Two #rrggbb colours blended: t=0 is a, t=1 is b."""
+    ca,cb=QColor(a),QColor(b)
+    return QColor(int(ca.red()+(cb.red()-ca.red())*t),int(ca.green()+(cb.green()-ca.green())*t),int(ca.blue()+(cb.blue()-ca.blue())*t))
+
 class HudCanvas(QWidget):
+    """EDITH's core: a sphere of glowing nodes joined by threads of light.
+
+    It turns slowly on its own; drag it to spin it, hover to stir it, click it to ping it.
+    level_fn (set by the window) says how loud EDITH or the microphone is right now, 0-1,
+    and kick() gives it a nudge (a word spoken, a piece of answer arriving). A spring
+    carries both, so it swells and bounces back past its rest size when EDITH talks.
+    """
+    N_SHELL=230; N_CORE=50
     def __init__(self,parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setMinimumSize(300,300); self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Expanding)
+        self.setMouseTracking(True); self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.muted=False; self.speaking=False; self.state="INITIALISING"
-        self._tick=0; self._scale=1.0; self._tgt_scale=1.0
-        self._halo=55.0; self._tgt_halo=55.0; self._last_t=time.time()
-        self._scan=0.0; self._scan2=180.0; self._rings=[0.0,120.0,240.0]
-        self._pulses=[0.0,50.0,100.0]; self._blink=True; self._blink_tick=0
-        self._particles=[]; self._face_px=None
+        self.level_fn=None
+        self._tick=0; self._t=0.0; self._last=time.time(); self._blink=True; self._blink_tick=0
+        self._level=0.0; self._scale=1.0; self._scale_v=0.0; self._energy=0.0
+        self._yaw=0.6; self._pitch=-0.22; self._vyaw=0.18; self._vpitch=0.0
+        self._drag=None; self._dragged=False; self._mouse=None; self._pings=[]; self._particles=[]
+        self._build_mesh(); self._glow=self._glow_sprite()
         # The live answer under the state text, like the glasses display.
         self._caption=""; self._cap_until=float("inf"); self._cap_alpha=0.0; self._cap_h=0.0; self._cap_h_tgt=0.0
         self._tmr=QTimer(self); self._tmr.timeout.connect(self._step); self._tmr.start(16)
+
+    # ── geometry ──
+    def _build_mesh(self):
+        rnd=random.Random(55); pts=[]; n=self.N_SHELL; ga=math.pi*(3-math.sqrt(5))
+        for i in range(n):  # an even spread over the sphere, then roughened so it reads hand-made
+            y=1-2*(i+0.5)/n; r=math.sqrt(max(0.0,1-y*y)); th=ga*i
+            x,z=math.cos(th)*r,math.sin(th)*r
+            x+=rnd.uniform(-.07,.07); y+=rnd.uniform(-.07,.07); z+=rnd.uniform(-.07,.07)
+            l=math.sqrt(x*x+y*y+z*z) or 1.0; rad=rnd.uniform(.9,1.05)
+            pts.append((x/l,y/l,z/l,rad))
+        for _ in range(self.N_CORE):  # a looser cloud inside, for depth
+            x,y,z=rnd.gauss(0,1),rnd.gauss(0,1),rnd.gauss(0,1); l=math.sqrt(x*x+y*y+z*z) or 1.0
+            pts.append((x/l,y/l,z/l,rnd.uniform(.32,.8)))
+        self._dirs=[(q[0],q[1],q[2]) for q in pts]; self._rad=[q[3] for q in pts]
+        self._phase=[rnd.uniform(0,math.tau) for _ in pts]; self._size=[rnd.uniform(.7,1.35) for _ in pts]
+        base=[(d[0]*r,d[1]*r,d[2]*r) for d,r in zip(self._dirs,self._rad)]
+        def d2(a,b): return (base[a][0]-base[b][0])**2+(base[a][1]-base[b][1])**2+(base[a][2]-base[b][2])**2
+        edges=set(); shell=range(n)
+        for i in shell:
+            for dd,j in sorted((d2(i,j),j) for j in shell if j!=i)[:4]:
+                if dd<0.17: edges.add((min(i,j),max(i,j)))
+        for i in range(n,len(pts)):
+            for dd,j in sorted((d2(i,j),j) for j in range(len(pts)) if j!=i)[:3]: edges.add((min(i,j),max(i,j)))
+        chords=set()
+        while len(chords)<16:  # a few long threads across the middle, like a constellation map
+            a,b=rnd.randrange(n),rnd.randrange(n)
+            if a!=b and d2(a,b)>1.6: chords.add((min(a,b),max(a,b)))
+        self._edges=sorted(edges); self._chords=sorted(chords)
+
+    @staticmethod
+    def _glow_sprite():
+        s=64; img=QImage(s,s,QImage.Format.Format_ARGB32_Premultiplied); img.fill(Qt.GlobalColor.transparent)
+        g=QPainter(img); rg=QRadialGradient(QPointF(s/2,s/2),s/2)
+        rg.setColorAt(0.0,QColor(255,250,210,255)); rg.setColorAt(0.18,QColor(254,236,140,210))
+        rg.setColorAt(0.45,QColor(245,197,66,70)); rg.setColorAt(1.0,QColor(245,197,66,0))
+        g.setPen(Qt.PenStyle.NoPen); g.setBrush(QBrush(rg)); g.drawEllipse(QRectF(0,0,s,s)); g.end()
+        return img
+
+    # ── inputs ──
+    def kick(self,strength=0.6):
+        """A nudge: the spring swells and bounces back. Bigger for longer words or chunks."""
+        s=max(0.0,min(1.5,strength)); self._scale_v+=0.9*s; self._energy=min(1.0,self._energy+0.25*s)
 
     def set_caption(self,text,hold=None):
         self._caption=" ".join(str(text or "").split())
@@ -1160,26 +1305,55 @@ class HudCanvas(QWidget):
     def fade_caption(self,after):
         if self._caption: self._cap_until=time.time()+after
 
+    def _geometry(self):
+        W,H=self.width(),self.height(); fw=min(W,H*0.92)
+        return W/2,H*0.45,fw*0.30
+
+    def mousePressEvent(self,e):
+        if e.button()==Qt.MouseButton.LeftButton:
+            self._drag=e.position(); self._dragged=False; self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        super().mousePressEvent(e)
+    def mouseMoveEvent(self,e):
+        pos=e.position(); self._mouse=pos
+        if self._drag is not None:
+            dx,dy=pos.x()-self._drag.x(),pos.y()-self._drag.y()
+            if abs(dx)+abs(dy)>3: self._dragged=True
+            self._vyaw=dx*0.35; self._vpitch=dy*0.35
+            self._yaw+=dx*0.008; self._pitch=max(-1.2,min(1.2,self._pitch+dy*0.008))
+            self._drag=pos
+    def mouseReleaseEvent(self,e):
+        if e.button()==Qt.MouseButton.LeftButton and self._drag is not None:
+            if not self._dragged:
+                cx,cy,R=self._geometry(); q=e.position()
+                if math.hypot(q.x()-cx,q.y()-cy)<R*1.25: self._pings.append(0.0); self.kick(0.9)
+            self._drag=None; self.setCursor(Qt.CursorShape.OpenHandCursor)
+        super().mouseReleaseEvent(e)
+    def leaveEvent(self,e):
+        self._mouse=None; super().leaveEvent(e)
+
+    # ── motion ──
     def _step(self):
-        self._tick+=1; now=time.time()
-        if now-self._last_t>(0.12 if self.speaking else 0.5):
-            if self.speaking: self._tgt_scale=random.uniform(1.06,1.14); self._tgt_halo=random.uniform(145,190)
-            elif self.muted:  self._tgt_scale=random.uniform(0.998,1.002); self._tgt_halo=random.uniform(15,28)
-            else:             self._tgt_scale=random.uniform(1.001,1.008); self._tgt_halo=random.uniform(48,68)
-            self._last_t=now
-        sp=0.38 if self.speaking else 0.15
-        self._scale+=(self._tgt_scale-self._scale)*sp; self._halo+=(self._tgt_halo-self._halo)*sp
-        speeds=[1.3,-0.9,2.0] if self.speaking else [0.55,-0.35,0.9]
-        for i,spd in enumerate(speeds): self._rings[i]=(self._rings[i]+spd)%360
-        self._scan=(self._scan+(3.0 if self.speaking else 1.3))%360
-        self._scan2=(self._scan2+(-2.0 if self.speaking else -0.75))%360
-        fw=min(self.width(),self.height()); lim=fw*0.74; spd=4.2 if self.speaking else 2.0
-        self._pulses=[r+spd for r in self._pulses if r+spd<lim]
-        if len(self._pulses)<3 and random.random()<(0.07 if self.speaking else 0.025): self._pulses.append(0.0)
-        if self.speaking and random.random()<0.28:
-            cx,cy=self.width()/2,self.height()/2; ang=random.uniform(0,2*math.pi); rs=fw*0.28
-            self._particles.append([cx+math.cos(ang)*rs,cy+math.sin(ang)*rs,math.cos(ang)*random.uniform(0.9,2.4),math.sin(ang)*random.uniform(0.9,2.4)-0.4,1.0])
-        self._particles=[[p[0]+p[2],p[1]+p[3],p[2]*0.97,p[3]*0.97,p[4]-0.028] for p in self._particles if p[4]>0]
+        now=time.time(); dt=max(0.001,min(0.05,now-self._last)); self._last=now; self._t+=dt; self._tick+=1
+        lvl=0.0
+        if self.level_fn is not None:
+            try: lvl=max(0.0,min(1.0,float(self.level_fn() or 0.0)))
+            except Exception: lvl=0.0
+        self._level+=(lvl-self._level)*(0.45 if lvl>self._level else 0.12)
+        self._energy*=0.94
+        # The bounce: an under-damped spring pulled towards a size set by how loud it is.
+        target=0.9 if self.muted else 1.0+0.2*self._level+0.018*math.sin(self._t*1.7)
+        self._scale_v+=(170.0*(target-self._scale)-7.5*self._scale_v)*dt; self._scale+=self._scale_v*dt
+        self._scale=max(0.7,min(1.45,self._scale))
+        spin=0.08 if self.muted else {"THINKING":1.05,"ANSWERING":0.5,"SPEAKING":0.45,"LISTENING":0.3}.get(self.state,0.2)
+        if self._drag is None:
+            self._vyaw+=(spin-self._vyaw)*min(1.0,dt*1.8); self._vpitch*=(1-min(1.0,dt*3))
+            self._yaw+=self._vyaw*dt; self._pitch+=(-0.22-self._pitch)*min(1.0,dt*0.8)+self._vpitch*dt*0.2
+        self._pings=[a+dt for a in self._pings if a+dt<1.6]
+        if (self.speaking or self.state=="LISTENING") and random.random()<0.12+0.5*self._level:
+            cx,cy,R=self._geometry(); a=random.uniform(0,math.tau); r0=R*self._scale
+            spd=random.uniform(30,90)*(0.6+self._level)
+            self._particles.append([cx+math.cos(a)*r0,cy+math.sin(a)*r0,math.cos(a)*spd,math.sin(a)*spd,1.0])
+        self._particles=[[q[0]+q[2]*dt,q[1]+q[3]*dt,q[2]*0.985,q[3]*0.985,q[4]-dt*1.4] for q in self._particles if q[4]>0][-160:]
         self._blink_tick+=1
         if self._blink_tick>=38: self._blink=not self._blink; self._blink_tick=0
         tgt=1.0 if self._caption and now<self._cap_until else 0.0
@@ -1188,76 +1362,102 @@ class HudCanvas(QWidget):
         self._cap_h+=(self._cap_h_tgt-self._cap_h)*0.2
         self.update()
 
+    def _palette(self):
+        """Thread colour and node colour by state: gold, greener while listening, amber while thinking."""
+        if self.muted: return QColor(C.MUTED_C),QColor("#ff8899")
+        if self.state=="LISTENING": return _mix(C.PRI,C.GREEN,0.45),_mix(C.PRI_BRIGHT,C.GREEN,0.35)
+        if self.state=="THINKING": return _mix(C.PRI,C.ACC,0.45),QColor(C.PRI_BRIGHT)
+        return QColor(C.PRI),QColor(C.PRI_BRIGHT)
+
+    # ── drawing ──
     def paintEvent(self,_):
         p=QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        W,H=self.width(),self.height(); fw=min(W,H); cx,cy,R0=self._geometry()
         p.fillRect(self.rect(),qcol(C.BG))
-        W,H=self.width(),self.height(); cx,cy=W/2,H/2; fw=min(W,H)
         p.setPen(QPen(qcol(C.PRI_GHO),1))
         for x in range(0,W,48):
             for y in range(0,H,48): p.drawPoint(x,y)
-        r_face=fw*0.31
-        for i in range(10):
-            r=r_face*(1.8-i*0.08); frc=1.0-i/10
-            a=max(0,min(255,int(self._halo*0.085*frc)))
-            col=qcol(C.MUTED_C if self.muted else C.PRI,a)
-            p.setPen(QPen(col,1.5)); p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawEllipse(QRectF(cx-r,cy-r,r*2,r*2))
-        for pr in self._pulses:
-            a=max(0,int(230*(1.0-pr/(fw*0.74))))
-            p.setPen(QPen(qcol(C.MUTED_C if self.muted else C.PRI,a),1.5))
-            p.setBrush(Qt.BrushStyle.NoBrush); p.drawEllipse(QRectF(cx-pr,cy-pr,pr*2,pr*2))
-        for idx,(r_frac,w_r,arc_l,gap) in enumerate([(0.48,3,115,78),(0.40,2,78,55),(0.32,1,56,40)]):
-            ring_r=fw*r_frac; base=self._rings[idx]
-            a_val=max(0,min(255,int(self._halo*(1.0-idx*0.18))))
-            col=qcol(C.MUTED_C if self.muted else C.PRI,a_val)
-            p.setPen(QPen(col,w_r)); p.setBrush(Qt.BrushStyle.NoBrush)
-            angle=base; rect=QRectF(cx-ring_r,cy-ring_r,ring_r*2,ring_r*2)
-            while angle<base+360: p.drawArc(rect,int(angle*16),int(arc_l*16)); angle+=arc_l+gap
-        sr=fw*0.50; sa=min(255,int(self._halo*1.5)); ex=75 if self.speaking else 44
-        p.setPen(QPen(qcol(C.MUTED_C if self.muted else C.PRI,sa),2.5))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        srect=QRectF(cx-sr,cy-sr,sr*2,sr*2)
-        p.drawArc(srect,int(self._scan*16),int(ex*16))
-        p.setPen(QPen(qcol(C.ACC,sa//2),1.5)); p.drawArc(srect,int(self._scan2*16),int(ex*16))
-        t_out,t_in=fw*0.497,fw*0.474
-        p.setPen(QPen(qcol(C.PRI,140),1))
-        for deg in range(0,360,10):
-            rad=math.radians(deg); inn=t_in if deg%30==0 else t_in+6
-            p.drawLine(QPointF(cx+t_out*math.cos(rad),cy-t_out*math.sin(rad)),QPointF(cx+inn*math.cos(rad),cy-inn*math.sin(rad)))
-        ch_r,gap_h=fw*0.51,fw*0.16
-        p.setPen(QPen(qcol(C.PRI,int(self._halo*0.5)),1))
-        p.drawLine(QPointF(cx-ch_r,cy),QPointF(cx-gap_h,cy)); p.drawLine(QPointF(cx+gap_h,cy),QPointF(cx+ch_r,cy))
-        p.drawLine(QPointF(cx,cy-ch_r),QPointF(cx,cy-gap_h)); p.drawLine(QPointF(cx,cy+gap_h),QPointF(cx,cy+ch_r))
-        bl=24; bc=qcol(C.PRI,210)
-        hl,hr,ht,hb=cx-fw//2,cx+fw//2,cy-fw//2,cy+fw//2
-        p.setPen(QPen(bc,2))
+        line_c,node_c=self._palette(); lvl=self._level; R=R0*self._scale
+        # Halo behind the core, brighter when it talks.
+        halo=QRadialGradient(QPointF(cx,cy),R*1.75)
+        hc=QColor(line_c); hc.setAlpha(min(255,int(46+90*lvl+60*self._energy))); halo.setColorAt(0.0,hc)
+        hc2=QColor(line_c); hc2.setAlpha(int(18+30*lvl)); halo.setColorAt(0.45,hc2)
+        hc3=QColor(line_c); hc3.setAlpha(0); halo.setColorAt(1.0,hc3)
+        p.setPen(Qt.PenStyle.NoPen); p.setBrush(QBrush(halo)); p.drawEllipse(QPointF(cx,cy),R*1.75,R*1.75)
+        # Faint crosshair and corner brackets, like the JARVIS HUD.
+        p.setPen(QPen(qcol(C.PRI,26),1))
+        p.drawLine(QPointF(cx-fw*0.5,cy),QPointF(cx-R*1.25,cy)); p.drawLine(QPointF(cx+R*1.25,cy),QPointF(cx+fw*0.5,cy))
+        bl=24; hl,hr,ht,hb=cx-fw*0.48,cx+fw*0.48,cy-fw*0.42,cy+fw*0.5
+        p.setPen(QPen(qcol(C.PRI,170),2))
         for bx,by,dx,dy in [(hl,ht,1,1),(hr,ht,-1,1),(hl,hb,1,-1),(hr,hb,-1,-1)]:
             p.drawLine(QPointF(bx,by),QPointF(bx+dx*bl,by)); p.drawLine(QPointF(bx,by),QPointF(bx,by+dy*bl))
-        if self._face_px:
-            fsz=int(fw*0.62*self._scale)
-            scaled=self._face_px.scaled(fsz,fsz,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)
-            p.drawPixmap(int(cx-fsz/2),int(cy-fsz/2),scaled)
-        else:
-            orb_r=int(fw*0.27*self._scale)
-            oc=(200,0,50) if self.muted else (84,62,10)
-            for i in range(8,0,-1):
-                r2=int(orb_r*i/8); frc=i/8
-                a=max(0,min(255,int(self._halo*1.1*frc)))
-                p.setBrush(QBrush(QColor(int(oc[0]*frc),int(oc[1]*frc),int(oc[2]*frc),a))); p.setPen(Qt.PenStyle.NoPen)
-                p.drawEllipse(QRectF(cx-r2,cy-r2,r2*2,r2*2))
-            p.setPen(QPen(qcol(C.PRI,min(255,int(self._halo*2))),1))
-            p.setFont(QFont("Courier New",13,QFont.Weight.Bold))
-            p.drawText(QRectF(cx-80,cy-14,160,28),Qt.AlignmentFlag.AlignCenter,"E.D.I.T.H")
-        for pt in self._particles:
-            a=max(0,min(255,int(pt[4]*255))); p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(qcol(C.PRI,a))); p.drawEllipse(QPointF(pt[0],pt[1]),2.5,2.5)
+        # An orbit ring, tilted, turning the other way.
+        p.save(); p.translate(cx,cy); p.rotate(-18)
+        ring=QPen(qcol(C.PRI,int(70+80*lvl)),1.2); ring.setDashPattern([6,5]); ring.setDashOffset(-self._t*14)
+        p.setPen(ring); p.setBrush(Qt.BrushStyle.NoBrush); p.drawEllipse(QPointF(0,0),R*1.42,R*0.42); p.restore()
+
+        # Project every node: turn it, ripple it, push it from the cursor.
+        cyw,syw,cpt,spt=math.cos(self._yaw),math.sin(self._yaw),math.cos(self._pitch),math.sin(self._pitch)
+        t=self._t; amp=0.012+0.075*lvl+0.05*self._energy+(0.02 if self.state=="THINKING" else 0.0)
+        mx=my=None
+        if self._mouse is not None and self._drag is None: mx,my=self._mouse.x(),self._mouse.y()
+        scan=math.sin(t*1.6) if self.state=="THINKING" else None
+        pts=[]
+        for i,(d,rad) in enumerate(zip(self._dirs,self._rad)):
+            dx,dy,dz=d
+            r=rad*(1+amp*(math.sin(dx*5.0+t*3.1+self._phase[i])*0.6+math.sin(dy*6.0-t*4.3)*0.4))
+            for age in self._pings:  # a click sends a wave from the top of the sphere to the bottom
+                front=age*2.2-(1-dy)
+                if 0<front<0.6: r+=0.14*(1-age/1.6)*math.sin(front/0.6*math.pi)
+            x,y,z=dx*r,dy*r,dz*r
+            x,z=x*cyw+z*syw,-x*syw+z*cyw
+            y,z=y*cpt-z*spt,y*spt+z*cpt
+            persp=2.8/(2.8-z); sx=cx+x*R*persp; sy=cy-y*R*persp
+            glow=0.0
+            if mx is not None:
+                dd=math.hypot(sx-mx,sy-my)
+                if dd<80: f=1-dd/80; glow=f; sx+=(sx-mx)*0.25*f; sy+=(sy-my)*0.25*f
+            if scan is not None: glow=max(glow,max(0.0,1-abs(dy-scan)*4)*0.8)
+            pts.append((sx,sy,max(0.0,min(1.0,(z/1.05+1)/2)),glow))
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+        # Threads, bucketed by brightness so there are few pen changes.
+        buckets=[[] for _ in range(6)]
+        for a,b in self._edges:
+            pa,pb=pts[a],pts[b]; v=(pa[2]+pb[2])/2+max(pa[3],pb[3])*0.6
+            buckets[min(5,int(v*5.99))].append(QLineF(pa[0],pa[1],pb[0],pb[1]))
+        boost=0.75+0.5*lvl+0.4*self._energy
+        for k,lines in enumerate(buckets):
+            if not lines: continue
+            c=QColor(line_c); c.setAlpha(min(255,int((18+30*k)*boost)))
+            p.setPen(QPen(c,0.8+0.18*k)); p.drawLines(lines)
+        cc=QColor(line_c); cc.setAlpha(int(22+40*lvl)); p.setPen(QPen(cc,0.7))
+        p.drawLines([QLineF(pts[a][0],pts[a][1],pts[b][0],pts[b][1]) for a,b in self._chords])
+        # Nodes: a glow sprite each, bigger and brighter at the front.
+        for i,(sx,sy,depth,glow) in enumerate(pts):
+            tw=0.75+0.25*math.sin(t*2.3+self._phase[i]*3)
+            s=(3.0+7.0*depth)*self._size[i]*(1+0.6*glow+0.35*lvl)
+            p.setOpacity(max(0.05,min(1.0,(0.18+0.82*depth)*tw+glow*0.6)))
+            p.drawImage(QRectF(sx-s,sy-s,s*2,s*2),self._glow)
+        p.setOpacity(1.0)
+        # The heart: a soft light in the middle that beats with the voice.
+        core=QRadialGradient(QPointF(cx,cy),R*0.55)
+        k1=QColor(node_c); k1.setAlpha(min(255,int(60+150*lvl+80*self._energy))); core.setColorAt(0.0,k1)
+        k2=QColor(line_c); k2.setAlpha(0); core.setColorAt(1.0,k2)
+        p.setPen(Qt.PenStyle.NoPen); p.setBrush(QBrush(core)); p.drawEllipse(QPointF(cx,cy),R*0.55,R*0.55)
+        for q in self._particles:
+            c=QColor(node_c); c.setAlpha(max(0,min(255,int(q[4]*220)))); p.setBrush(QBrush(c)); p.drawEllipse(QPointF(q[0],q[1]),1.8,1.8)
+        for age in self._pings:
+            c=QColor(node_c); c.setAlpha(int(200*(1-age/1.6))); p.setPen(QPen(c,1.5)); p.setBrush(Qt.BrushStyle.NoBrush)
+            rr=R*(1.0+age*0.9); p.drawEllipse(QPointF(cx,cy),rr,rr)
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+
         # Caption: the live answer, 2-3 lines under the state text (the state text rises to make room).
         cap_lines=[]; cf=QFont("Courier New",10); fm=QFontMetrics(cf); lh=fm.height()+2
         if self._caption and self._cap_alpha>0.01:
             cap_lines=wrap_text(self._caption,fm,int(min(W-60,fw*0.86)))[-3:]
             self._cap_h_tgt=float(len(cap_lines)*lh+10)
         else: self._cap_h_tgt=0.0
-        sy=cy+fw*0.40-self._cap_h
+        sy=min(H-64,cy+R0*1.62)-self._cap_h
         if self.muted:             txt,col="⊘  MUTED",          qcol(C.MUTED_C)
         elif self.speaking:        txt,col=("●  ANSWERING" if self.state=="ANSWERING" else "●  SPEAKING"),qcol(C.ACC)
         elif self.state=="THINKING":sym="◈" if self._blink else "◇"; txt,col=f"{sym}  THINKING",  qcol(C.ACC2)
@@ -1278,10 +1478,46 @@ class HudCanvas(QWidget):
                 p.drawText(QRectF(0,top+2+i*lh,W,lh),Qt.AlignmentFlag.AlignHCenter|Qt.AlignmentFlag.AlignVCenter,line)
         wy=sy+30+self._cap_h; N,bw=36,8; wx0=(W-N*bw)/2
         for i in range(N):
-            if self.muted:           hgt,cl=2,qcol(C.MUTED_C)
-            elif self.speaking:      hgt=random.randint(3,20); cl=qcol(C.PRI) if hgt>12 else qcol(C.PRI_DIM)
-            else:                    hgt=int(3+2*math.sin(self._tick*0.09+i*0.6)); cl=qcol(C.BORDER_B)
+            if self.muted: hgt,cl=2,qcol(C.MUTED_C)
+            elif self.speaking or self.state=="LISTENING":
+                hgt=int(3+17*self._level*(0.4+0.6*abs(math.sin(self._t*9+i*0.7))))+random.randint(0,2)
+                cl=qcol(C.PRI) if hgt>12 else qcol(C.PRI_DIM)
+            else: hgt=int(3+2*math.sin(self._tick*0.09+i*0.6)); cl=qcol(C.BORDER_B)
             p.fillRect(QRectF(wx0+i*bw,wy+20-hgt,bw-1,hgt),cl)
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  UI — FILE DROP ZONE                                                     ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+class DropZone(QWidget):
+    """A dashed box with an upload arrow: click to browse for a photo, or drop one on it."""
+    clicked=pyqtSignal(); dropped=pyqtSignal(str)
+    def __init__(self,parent=None):
+        super().__init__(parent); self.setFixedHeight(84); self.setAcceptDrops(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor); self._hot=False
+    def enterEvent(self,e): self._hot=True; self.update(); super().enterEvent(e)
+    def leaveEvent(self,e): self._hot=False; self.update(); super().leaveEvent(e)
+    def mouseReleaseEvent(self,e):
+        if e.button()==Qt.MouseButton.LeftButton and self.rect().contains(e.position().toPoint()): self.clicked.emit()
+    def dragEnterEvent(self,e):
+        if e.mimeData().hasUrls() and any(u.isLocalFile() for u in e.mimeData().urls()): e.acceptProposedAction(); self._hot=True; self.update()
+    def dragLeaveEvent(self,e): self._hot=False; self.update()
+    def dropEvent(self,e):
+        self._hot=False; self.update()
+        for u in e.mimeData().urls():
+            if u.isLocalFile(): self.dropped.emit(u.toLocalFile()); break
+    def paintEvent(self,_):
+        p=QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r=QRectF(self.rect()).adjusted(1,1,-1,-1); col=qcol(C.PRI if self._hot else C.BORDER_B)
+        pen=QPen(col,1.5); pen.setDashPattern([4,3]); p.setPen(pen); p.setBrush(QBrush(qcol(C.DARK)))
+        p.drawRoundedRect(r,6,6)
+        cx=r.center().x(); top=r.top()+12; ac=qcol(C.PRI if self._hot else C.TEXT_MED)
+        p.setPen(QPen(ac,1.8,Qt.PenStyle.SolidLine,Qt.PenCapStyle.RoundCap,Qt.PenJoinStyle.RoundJoin))
+        p.drawLine(QPointF(cx,top+3),QPointF(cx,top+18)); p.drawLine(QPointF(cx-7,top+10),QPointF(cx,top+3)); p.drawLine(QPointF(cx+7,top+10),QPointF(cx,top+3))
+        p.drawLine(QPointF(cx-12,top+22),QPointF(cx+12,top+22))
+        p.setFont(QFont("Courier New",8)); p.setPen(QPen(ac,1))
+        p.drawText(QRectF(r.left(),top+28,r.width(),16),Qt.AlignmentFlag.AlignCenter,"Drop a photo here  or  Click to browse")
+        p.setFont(QFont("Courier New",7)); p.setPen(QPen(qcol(C.TEXT_DIM),1))
+        p.drawText(QRectF(r.left(),top+44,r.width(),14),Qt.AlignmentFlag.AlignCenter,"Images · Screenshots · JPG · PNG · WEBP")
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║  UI — METRIC BAR                                                         ║
@@ -1426,6 +1662,8 @@ class SetupOverlay(QWidget):
         cur=d["provider"] if any(p["id"]==d["provider"] for p in self._providers) else self._providers[0]["id"]
         self._sel_provider=cur; self._checked={}; self._got_key={}; self._busy=False
         self._style=d["style"]; self._voice_on=d["voice_on"]; self._ptt=d["global_ptt"]
+        # The voice chosen, as (source, id); a new setup offers the AI company's own voice first.
+        self._voice_choice=(d["voice_source"],d["voice_name"]); self._voice_touched=not first_run
         self._link=None; self._poll_busy=False; self._poll_until=0.0
         self._poll_tmr=QTimer(self); self._poll_tmr.timeout.connect(self._poll_connect)
         lay=QVBoxLayout(self); lay.setContentsMargins(30,22,30,22); lay.setSpacing(8)
@@ -1448,7 +1686,7 @@ class SetupOverlay(QWidget):
         row=QHBoxLayout(); row.setSpacing(6)
         self._key=QLineEdit(); self._key.setEchoMode(QLineEdit.EchoMode.Password)
         self._key.setFont(QFont("Courier New",10)); self._key.setFixedHeight(32); self._key.setStyleSheet(_field_style())
-        self._key.returnPressed.connect(lambda: self._check()); row.addWidget(self._key,1)
+        self._key.returnPressed.connect(lambda: self._check()); self._key.textChanged.connect(self._key_typed); row.addWidget(self._key,1)
         self._check_btn=QPushButton("CHECK"); self._check_btn.setFixedSize(70,32); self._check_btn.setFont(QFont("Courier New",9,QFont.Weight.Bold))
         self._check_btn.setCursor(Qt.CursorShape.PointingHandCursor); self._check_btn.setStyleSheet(_line_button_style())
         self._check_btn.clicked.connect(lambda: self._check()); row.addWidget(self._check_btn)
@@ -1472,6 +1710,7 @@ class SetupOverlay(QWidget):
         self._vkey=QLineEdit(); self._vkey.setEchoMode(QLineEdit.EchoMode.Password); self._vkey.setFont(QFont("Courier New",10))
         self._vkey.setFixedHeight(32); self._vkey.setStyleSheet(_field_style())
         vrow.addWidget(self._vprov); vrow.addWidget(self._vkey,1); vb.addLayout(vrow); f.addWidget(self._vbox)
+        self._vprov.currentIndexChanged.connect(lambda _: self._fill_voices()); self._vkey.textChanged.connect(lambda _: self._fill_voices())
         self._connect_btn=QPushButton("⇄  Connect OpenRouter  ·  no key to copy"); self._connect_btn.setFixedHeight(40)
         self._connect_btn.setFont(QFont("Courier New",8)); self._connect_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._connect_btn.setStyleSheet(_dashed_style()); self._connect_btn.clicked.connect(self._connect); f.addWidget(self._connect_btn)
@@ -1494,9 +1733,13 @@ class SetupOverlay(QWidget):
         self._von.clicked.connect(lambda: self._sel_voice(True)); self._voff.clicked.connect(lambda: self._sel_voice(False))
         orow.addWidget(self._von); orow.addWidget(self._voff); f.addLayout(orow)
         f.addWidget(_label("VOICE",8,color=C.TEXT_DIM,align=left))
+        self._vnote2=_label("",8,color=C.ACC2,align=left); self._vnote2.setWordWrap(True); f.addWidget(self._vnote2)
+        vrow2=QHBoxLayout(); vrow2.setSpacing(6)
         self._voice=QComboBox(); self._voice.setFixedHeight(32); self._voice.setFont(QFont("Courier New",9)); self._voice.setStyleSheet(_combo_style())
-        for vid,name in VOICES: self._voice.addItem(name+("  (default)" if vid=="en-GB-SoniaNeural" else ""),vid)
-        self._voice.setCurrentIndex(VOICE_IDS.index(d["voice_name"]) if d["voice_name"] in VOICE_IDS else 0); f.addWidget(self._voice)
+        self._voice.setMaxVisibleItems(16); self._voice.activated.connect(self._voice_picked); vrow2.addWidget(self._voice,1)
+        self._play_btn=QPushButton("▶ PLAY"); self._play_btn.setFixedSize(80,32); self._play_btn.setFont(QFont("Courier New",9,QFont.Weight.Bold))
+        self._play_btn.setCursor(Qt.CursorShape.PointingHandCursor); self._play_btn.setStyleSheet(_line_button_style())
+        self._play_btn.clicked.connect(self._play_sample); vrow2.addWidget(self._play_btn); f.addLayout(vrow2)
         f.addWidget(_label("TALK FROM ANY APP  ·  HOLD RIGHT CTRL",8,color=C.TEXT_DIM,align=left))
         prow=QHBoxLayout(); prow.setSpacing(6); self._pon=self._choice_button("ON"); self._poff=self._choice_button("OFF")
         self._pon.clicked.connect(lambda: self._sel_ptt(True)); self._poff.clicked.connect(lambda: self._sel_ptt(False))
@@ -1589,6 +1832,58 @@ class SetupOverlay(QWidget):
         if not hears:
             self._vnote.setText(f"{info['label']} can't hear you. For HOLD TO TALK, add a key from an AI that can (Groq is free). Typing works without one.")
             self._vkey.setPlaceholderText("Saved voice key kept" if self.cfg.data["voice_key"] else "Voice key (optional)")
+        self._fill_voices()
+
+    # ── voice (2.1): the AI company's own voices, or a free one ──
+    def _key_typed(self,text):
+        company=company_of_key(text)
+        if company and company!=self._sel_provider and any(p["id"]==company for p in self._providers):
+            self._sel(company,keep_key=True); info=self._info(company)
+            art="an" if info["label"][:1].upper() in "AEIOU" else "a"
+            self._set_status(f"That's {art} {info['label']} key, so {SHORT_PROVIDER.get(company,info['label'])} is selected"
+                             +(": pick its voice below." if info.get("voices") else "."),C.GREEN)
+    def _voice_source(self):
+        """Whose voices to offer: the AI's own, else the voice key's company, else none."""
+        info=self._info()
+        if info.get("voices"): return info,"chat"
+        if not info.get("voice") and hasattr(self,"_vprov"):
+            vp=self._vprov.currentData() or ""; vinfo=self._info(vp)
+            has=self._vkey.text().strip() or (self.cfg.data["voice_provider"]==vp and self.cfg.data["voice_key"])
+            if vinfo.get("voices") and has: return vinfo,"voice"
+        return None,""
+    def _fill_voices(self):
+        if not hasattr(self,"_voice"): return
+        src,via=self._voice_source(); self._voice.blockSignals(True); self._voice.clear()
+        if src:
+            short=SHORT_PROVIDER.get(src["id"],src["label"])
+            for v in src["voices"]: self._voice.addItem(f"{short} · {v['name']}  —  {v['note']}",(via,v["id"]))
+        for vid,name in VOICES: self._voice.addItem(f"Free · {name}",("edge",vid))
+        self._vnote2.setText(f"{src['label']} voices{' (your voice key)' if via=='voice' else ''}, using your key. Or pick a free voice."
+                             if src else "This AI has no voices of its own: pick a free voice, or add a Groq, Gemini or OpenAI key for voice.")
+        want=self._voice_choice
+        if not self._voice_touched and src: want=(via,src.get("defaultVoice") or src["voices"][0]["id"])
+        idx=next((i for i in range(self._voice.count()) if tuple(self._voice.itemData(i))==tuple(want)),-1)
+        if idx<0 and want[0]!="edge":  # the same voice, now through the other key
+            idx=next((i for i in range(self._voice.count()) if self._voice.itemData(i)[1]==want[1]),-1)
+        if idx<0:
+            lang=self._lang.currentData() if hasattr(self,"_lang") else "en"
+            fallback=("edge",VOICE_FOR_LANGUAGE.get(lang or "en","en-GB-SoniaNeural"))
+            idx=next((i for i in range(self._voice.count()) if tuple(self._voice.itemData(i))==fallback),0)
+        self._voice.setCurrentIndex(idx); self._voice.blockSignals(False)
+    def _voice_picked(self,_):
+        data=self._voice.currentData()
+        if data: self._voice_choice=tuple(data); self._voice_touched=True
+    def _play_sample(self):
+        data=self._voice.currentData()
+        if not data: return
+        via,vid=data; pid=self._sel_provider
+        key=self._key.text().strip() or self.cfg.saved(pid).get("key","")
+        vp=self._vprov.currentData() or ""
+        vkey=self._vkey.text().strip() or (self.cfg.data["voice_key"] if self.cfg.data["voice_provider"]==vp else "")
+        if via=="chat" and not key: self._set_status("Paste the key first.",C.RED); return
+        self._set_status("Playing a sample…" if via=="edge" else "Asking for a sample…",C.ACC2)
+        self.win.play_sample(via,vid,EdithApi.key_headers(pid,key,vp,vkey),self._server_value,
+                             lambda err: self._set_status(f"Sample: {err}" if err else "",C.RED if err else C.ACC2))
     def _fill_models(self,models,current,editable=False):
         self._model.blockSignals(True); self._model.clear(); self._model.setEditable(editable)
         if editable and self._model.lineEdit() is not None:
@@ -1613,9 +1908,10 @@ class SetupOverlay(QWidget):
         self._ptt=on; self._pon.setStyleSheet(_choice_style(on,C.GREEN)); self._poff.setStyleSheet(_choice_style(not on))
     def _lang_changed(self,_):
         lang=self._lang.currentData(); want=VOICE_FOR_LANGUAGE.get(lang)
-        cur=self._voice.currentData() or ""
-        if want and not (lang=="en" and cur.startswith("en-")) and not cur.lower().startswith(lang+"-"):
-            self._voice.setCurrentIndex(VOICE_IDS.index(want))
+        src,cur=self._voice.currentData() or ("edge","")
+        if src=="edge" and want and not (lang=="en" and cur.startswith("en-")) and not cur.lower().startswith(lang+"-"):
+            idx=next((i for i in range(self._voice.count()) if tuple(self._voice.itemData(i))==("edge",want)),-1)
+            if idx>=0: self._voice.setCurrentIndex(idx); self._voice_choice=("edge",want)
     def _open_key_page(self):
         url=key_page_url(self._info().get("keyUrl"))
         if url: webbrowser.open(url)
@@ -1694,7 +1990,8 @@ class SetupOverlay(QWidget):
         self.done.emit({"provider":pid,"key":sig[1],"base":sig[2],"model":self._model_id(),"label":info["label"],"voice":bool(info.get("voice")),
                         "models":models,"voice_provider":vprov if (vkey and not info.get("voice")) else None,"voice_key":vkey or None,
                         "style":self._style,"language":self._lang.currentData() or "en","voice_on":self._voice_on,
-                        "voice_name":self._voice.currentData() or "en-GB-SoniaNeural","global_ptt":self._ptt,"server":server})
+                        "voice_name":(self._voice.currentData() or ("edge","en-GB-SoniaNeural"))[1],
+                        "voice_source":(self._voice.currentData() or ("edge",""))[0],"global_ptt":self._ptt,"server":server})
 
     # ── OpenRouter without copying a key ──
     def _connect(self):
@@ -1840,6 +2137,9 @@ class MainWindow(QMainWindow):
         body.addWidget(self.hud,stretch=5)
         body.addWidget(self._build_right_panel(),stretch=0)
         root.addLayout(body,stretch=1); root.addWidget(self._build_footer())
+        self._build_drawers(); self.hud.level_fn=self._hud_level
+        self._words=[]; self._word_i=-1
+        self._cloud=0; self._cloud_queue=[]; self._cloud_done=False; self._cloud_sample=None; self._sample_edge=None; self._env=[]
         self._clock_tmr=QTimer(self); self._clock_tmr.timeout.connect(self._tick_clock); self._clock_tmr.start(1000); self._tick_clock()
         self._metric_tmr=QTimer(self); self._metric_tmr.timeout.connect(self._update_metrics); self._metric_tmr.start(2000); self._update_metrics()
         self._rec_tmr=QTimer(self); self._rec_tmr.timeout.connect(self._rec_tick)
@@ -1909,7 +2209,12 @@ class MainWindow(QMainWindow):
         lay=QHBoxLayout(w); lay.setContentsMargins(16,0,16,0)
         def badge(txt,color=C.TEXT_MED):
             l=QLabel(txt); l.setFont(QFont("Courier New",8)); l.setStyleSheet(f"color:{color};background:transparent;"); return l
-        lay.addWidget(badge("PC EDITION",C.PRI_DIM)); lay.addStretch()
+        lay.addWidget(badge("PC EDITION",C.PRI_DIM)); lay.addSpacing(10)
+        self._setup_btn=self._head_button("⚙","Setup: your AI, keys and voice")
+        self._setup_btn.clicked.connect(lambda: self._toggle_drawer("setup")); lay.addWidget(self._setup_btn)
+        self._controls_btn=self._head_button("▦","Controls: voice, fullscreen, chats")
+        self._controls_btn.clicked.connect(lambda: self._toggle_drawer("controls")); lay.addWidget(self._controls_btn)
+        lay.addStretch()
         mid=QVBoxLayout(); mid.setSpacing(1)
         t=QLabel("E.D.I.T.H"); t.setAlignment(Qt.AlignmentFlag.AlignCenter)
         t.setFont(QFont("Courier New",17,QFont.Weight.Bold)); t.setStyleSheet(f"color:{C.PRI};background:transparent;"); mid.addWidget(t)
@@ -1922,6 +2227,61 @@ class MainWindow(QMainWindow):
         self._date_lbl=QLabel(""); self._date_lbl.setFont(QFont("Courier New",7))
         self._date_lbl.setStyleSheet(f"color:{C.TEXT_DIM};background:transparent;"); self._date_lbl.setAlignment(Qt.AlignmentFlag.AlignRight); rc.addWidget(self._date_lbl)
         lay.addLayout(rc); return w
+
+    def _head_button(self,glyph,tip):
+        b=QPushButton(glyph); b.setFixedSize(28,28); b.setToolTip(tip); b.setCheckable(True)
+        b.setFont(QFont("Segoe UI Symbol",12)); b.setCursor(Qt.CursorShape.PointingHandCursor); b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        b.setStyleSheet(f"QPushButton{{background:{C.PANEL2};color:{C.PRI};border:1px solid {C.BORDER_B};border-radius:4px;}}"
+                        f"QPushButton:hover{{border:1px solid {C.PRI};}}QPushButton:checked{{background:{C.PRI};color:{C.BG};border:1px solid {C.PRI};}}")
+        return b
+
+    # ── drawers (Mark LV style): SETUP for the things set once, CONTROLS for the daily switches ──
+    def _drawer_frame(self,title):
+        f=QFrame(self.centralWidget()); f.setObjectName("drawer"); f.hide(); f.setFixedWidth(300)
+        f.setStyleSheet(f"QFrame#drawer{{background:rgba(8,6,3,248);border:1px solid {C.BORDER_B};border-radius:6px;}}")
+        lay=QVBoxLayout(f); lay.setContentsMargins(14,12,14,14); lay.setSpacing(7)
+        lay.addWidget(_label(f"◈  {title}",10,True,C.PRI,Qt.AlignmentFlag.AlignLeft)); lay.addWidget(_sep())
+        return f,lay
+    def _strip(self,text,h=30,fs=8):
+        b=QPushButton(text); b.setFixedHeight(h); b.setFont(QFont("Courier New",fs,QFont.Weight.Bold))
+        b.setCursor(Qt.CursorShape.PointingHandCursor); b.setFocusPolicy(Qt.FocusPolicy.NoFocus); return b
+    def _build_drawers(self):
+        f,lay=self._drawer_frame("SETUP")
+        lay.addWidget(_label("AI LINK",7,True,C.TEXT_DIM,Qt.AlignmentFlag.AlignLeft))
+        self._link_label=QLabel("No AI linked"); self._link_label.setTextFormat(Qt.TextFormat.PlainText); self._link_label.setFont(QFont("Courier New",8))
+        self._link_label.setStyleSheet(f"color:{C.TEXT_DIM};background:transparent;"); self._link_label.setWordWrap(True); lay.addWidget(self._link_label)
+        ai=self._strip("⚙  AI, KEYS && VOICE",36,9); ai.setStyleSheet(_line_button_style())
+        ai.clicked.connect(lambda: (self._close_drawers(),self._show_setup(first_run=False))); lay.addWidget(ai)
+        note=_label("Pick the AI that answers, paste its key, choose the voice, the answer length and the language. Keys stay on this PC.",7,False,C.TEXT_DIM,Qt.AlignmentFlag.AlignLeft)
+        note.setWordWrap(True); lay.addWidget(note)
+        self._setup_drawer=f
+        f,lay=self._drawer_frame("CONTROLS")
+        self._voice_btn=self._strip("🔊  VOICE REPLIES ON  [F4]",30); self._voice_btn.clicked.connect(self._toggle_voice); lay.addWidget(self._voice_btn)
+        fs_btn=self._strip("⛶  FULLSCREEN  [F11]",30)
+        fs_btn.setStyleSheet(f"QPushButton{{background:transparent;color:{C.TEXT_MED};border:1px solid {C.BORDER};border-radius:3px;}}QPushButton:hover{{color:{C.PRI};border:1px solid {C.BORDER_B};}}")
+        fs_btn.clicked.connect(lambda: (self._close_drawers(),self._toggle_fs())); lay.addWidget(fs_btn)
+        self._chats_btn=self._strip("●  SAVED CHATS",30)
+        self._chats_btn.setStyleSheet(f"QPushButton{{background:#001a0a;color:{C.GREEN};border:1px solid {C.GREEN};border-radius:3px;}}QPushButton:hover{{background:#002a10;}}")
+        self._chats_btn.clicked.connect(lambda: (self._close_drawers(),self._show_chats())); lay.addWidget(self._chats_btn)
+        new=self._strip("✚  NEW CHAT",30); new.setStyleSheet(_line_button_style())
+        new.clicked.connect(lambda: (self._close_drawers(),self._new_chat())); lay.addWidget(new)
+        self._shot_btn=self._strip("▣  ASK ABOUT MY SCREEN",30); self._shot_btn.setStyleSheet(_dashed_style())
+        self._shot_btn.clicked.connect(lambda: (self._close_drawers(),self._screenshot_screen())); lay.addWidget(self._shot_btn)
+        self._controls_drawer=f
+    def _toggle_drawer(self,which):
+        d=self._setup_drawer if which=="setup" else self._controls_drawer
+        show=not d.isVisible(); self._close_drawers()
+        if show:
+            if which=="setup": self._refresh_link()
+            d.adjustSize(); d.move(10,58); d.show(); d.raise_()
+            (self._setup_btn if which=="setup" else self._controls_btn).setChecked(True)
+    def _close_drawers(self):
+        for d in (getattr(self,"_setup_drawer",None),getattr(self,"_controls_drawer",None)):
+            if d is not None: d.hide()
+        for b in (getattr(self,"_setup_btn",None),getattr(self,"_controls_btn",None)):
+            if b is not None: b.setChecked(False)
+    def _drawer_open(self):
+        return any(d is not None and d.isVisible() for d in (getattr(self,"_setup_drawer",None),getattr(self,"_controls_drawer",None)))
 
     def _tick_clock(self):
         now=datetime.now()
@@ -1965,45 +2325,19 @@ class MainWindow(QMainWindow):
         lay.addWidget(sec("ACTIVITY LOG"))
         self._log=LogWidget(); lay.addWidget(self._log,stretch=1)
         sep=QFrame(); sep.setFrameShape(QFrame.Shape.HLine); sep.setStyleSheet(f"color:{C.BORDER};margin:2px 0;"); lay.addWidget(sep)
-        # AI link: which AI answers, and the settings
-        lay.addWidget(sec("AI LINK"))
-        self._link_label=QLabel("No AI linked"); self._link_label.setTextFormat(Qt.TextFormat.PlainText); self._link_label.setFont(QFont("Courier New",7))
-        self._link_label.setStyleSheet(f"color:{C.TEXT_DIM};background:transparent;"); self._link_label.setWordWrap(True); lay.addWidget(self._link_label)
-        sbtn=QPushButton("⚙  Settings / switch AI"); sbtn.setFixedHeight(40)
-        sbtn.setFont(QFont("Courier New",8)); sbtn.setCursor(Qt.CursorShape.PointingHandCursor); sbtn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        sbtn.setStyleSheet(f"QPushButton{{background:{C.DARK};color:{C.TEXT_MED};border:2px dashed {C.BORDER};border-radius:6px;}}QPushButton:hover{{border-color:{C.PRI};color:{C.PRI};}}")
-        sbtn.clicked.connect(lambda: self._show_setup(first_run=False)); lay.addWidget(sbtn)
-        # Photo / vision upload
-        lay.addWidget(sec("ASK ABOUT A PHOTO"))
-        prow=QHBoxLayout(); prow.setContentsMargins(0,0,0,0); prow.setSpacing(4)
-        self._photo_label=QLabel("No photo loaded"); self._photo_label.setTextFormat(Qt.TextFormat.PlainText); self._photo_label.setFont(QFont("Courier New",7))
-        self._photo_label.setStyleSheet(f"color:{C.TEXT_DIM};background:transparent;"); self._photo_label.setWordWrap(True); prow.addWidget(self._photo_label,1)
-        self._shot_btn=QPushButton("▣ Screenshot my screen"); self._shot_btn.setFont(QFont("Courier New",7)); self._shot_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._shot_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._shot_btn.setStyleSheet(f"QPushButton{{background:transparent;color:{C.PRI_DIM};border:none;padding:0;}}QPushButton:hover{{color:{C.PRI};}}")
-        self._shot_btn.clicked.connect(self._screenshot_screen); prow.addWidget(self._shot_btn); lay.addLayout(prow)
-        pbtn=QPushButton("📷  Browse photo / screenshot"); pbtn.setFixedHeight(40)
-        pbtn.setFont(QFont("Courier New",8)); pbtn.setCursor(Qt.CursorShape.PointingHandCursor); pbtn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        pbtn.setStyleSheet(f"QPushButton{{background:{C.DARK};color:{C.TEXT_MED};border:2px dashed {C.BORDER};border-radius:6px;}}QPushButton:hover{{border-color:{C.PRI};color:{C.PRI};}}")
-        pbtn.clicked.connect(self._upload_photo); lay.addWidget(pbtn)
+        # A photo to ask about: drop it here, click to browse, or drop it anywhere on the window.
+        lay.addWidget(sec("FILE UPLOAD"))
+        self._drop_btn=DropZone(); self._drop_btn.clicked.connect(self._upload_photo); self._drop_btn.dropped.connect(self._attach_file)
+        lay.addWidget(self._drop_btn)
+        self._photo_label=QLabel("No file loaded — drop or click above to upload"); self._photo_label.setTextFormat(Qt.TextFormat.PlainText); self._photo_label.setFont(QFont("Courier New",7))
+        self._photo_label.setStyleSheet(f"color:{C.TEXT_DIM};background:transparent;"); self._photo_label.setWordWrap(True); lay.addWidget(self._photo_label)
         sep2=QFrame(); sep2.setFrameShape(QFrame.Shape.HLine); sep2.setStyleSheet(f"color:{C.BORDER};margin:2px 0;"); lay.addWidget(sep2)
         lay.addWidget(sec("COMMAND INPUT")); lay.addLayout(self._build_input())
-        self._talk_btn=QPushButton("🎙  HOLD TO TALK  [SPACE]"); self._talk_btn.setFixedHeight(30)
-        self._talk_btn.setFont(QFont("Courier New",8,QFont.Weight.Bold)); self._talk_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._talk_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._stop_btn=self._strip("✋  INTERRUPT  [ESC]",34)
+        self._stop_btn.setStyleSheet(f"QPushButton{{background:#140006;color:{C.RED};border:1px solid {C.RED};border-radius:3px;}}QPushButton:hover{{background:#24000c;}}")
+        self._stop_btn.clicked.connect(self._interrupt); lay.addWidget(self._stop_btn)
+        self._talk_btn=self._strip("🎙  HOLD TO TALK  [SPACE]",34)
         self._talk_btn.pressed.connect(lambda: self._talk_down()); self._talk_btn.released.connect(lambda: self._talk_up()); lay.addWidget(self._talk_btn)
-        self._voice_btn=QPushButton("🔊  VOICE REPLIES ON  [F4]"); self._voice_btn.setFixedHeight(26)
-        self._voice_btn.setFont(QFont("Courier New",7,QFont.Weight.Bold)); self._voice_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._voice_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus); self._voice_btn.clicked.connect(self._toggle_voice); lay.addWidget(self._voice_btn)
-        fs_btn=QPushButton("⛶  FULLSCREEN  [F11]"); fs_btn.setFixedHeight(26); fs_btn.setFont(QFont("Courier New",7))
-        fs_btn.setCursor(Qt.CursorShape.PointingHandCursor); fs_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        fs_btn.setStyleSheet(f"QPushButton{{background:transparent;color:{C.TEXT_MED};border:1px solid {C.BORDER};border-radius:3px;}}QPushButton:hover{{color:{C.PRI};border:1px solid {C.BORDER_B};}}")
-        fs_btn.clicked.connect(self._toggle_fs); lay.addWidget(fs_btn)
-        # Saved chats
-        self._chats_btn=QPushButton("●  SAVED CHATS"); self._chats_btn.setFixedHeight(26); self._chats_btn.setFont(QFont("Courier New",7,QFont.Weight.Bold))
-        self._chats_btn.setCursor(Qt.CursorShape.PointingHandCursor); self._chats_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._chats_btn.setStyleSheet(f"QPushButton{{background:#001a0a;color:{C.GREEN};border:1px solid {C.GREEN};border-radius:3px;}}QPushButton:hover{{background:#002a10;}}")
-        self._chats_btn.clicked.connect(self._show_chats); lay.addWidget(self._chats_btn)
         return w
 
     def _build_input(self):
@@ -2022,7 +2356,7 @@ class MainWindow(QMainWindow):
         lay=QHBoxLayout(w); lay.setContentsMargins(14,0,14,0)
         def fl(txt,color=C.TEXT_MED):
             l=QLabel(txt); l.setFont(QFont("Courier New",7)); l.setStyleSheet(f"color:{color};background:transparent;"); return l
-        lay.addWidget(fl("[SPACE] Hold to talk  ·  [F4] Voice  ·  [F11] Fullscreen")); lay.addStretch()
+        lay.addWidget(fl("[SPACE] Talk  ·  [ESC] Interrupt  ·  [F4] Voice  ·  [F11] Fullscreen")); lay.addStretch()
         lay.addWidget(fl("E.D.I.T.H  ·  PC EDITION")); lay.addStretch()
         lay.addWidget(fl("OPEN SOURCE · MIT",C.PRI_DIM)); return w
 
@@ -2083,7 +2417,7 @@ class MainWindow(QMainWindow):
             self._log.append_log("SYS: No AI linked yet. Pick one and paste its key to begin.")
             self._apply_state("STANDBY"); self._show_setup(first_run=True)
         self._probe_mic(boot=True); self._fetch_providers()
-        if self.cfg.data["voice_on"]: self._ensure_voice()
+        if self.cfg.data["voice_on"] and self.cfg.data["voice_source"]=="edge": self._ensure_voice()
         self._apply_talk_key()
 
     def _fetch_providers(self):
@@ -2160,7 +2494,8 @@ class MainWindow(QMainWindow):
         d["provider"]=pid
         if s.get("voice_key") and s.get("voice_provider"): d["voice_provider"]=s["voice_provider"]; d["voice_key"]=s["voice_key"]
         voice_was=d["voice_on"]
-        d.update({"style":s["style"],"language":s["language"],"voice_on":s["voice_on"],"voice_name":s["voice_name"],"global_ptt":s["global_ptt"]})
+        d.update({"style":s["style"],"language":s["language"],"voice_on":s["voice_on"],"voice_name":s["voice_name"],
+                  "voice_source":s.get("voice_source","edge"),"global_ptt":s["global_ptt"]})
         if not self._server_locked(): d["server"]=s["server"]
         if not clean_chat_id(d["chat_id"]): d["chat_id"]=new_chat_id()
         self._save(); self._close_setup()
@@ -2168,7 +2503,7 @@ class MainWindow(QMainWindow):
         elif before!=(pid,s["model"]): self._log.append_log(f"SYS: AI link: {self._link_text()}")
         else: self._log.append_log("SYS: Settings saved.")
         if voice_was and not d["voice_on"]: self._stop_speaking()
-        if d["voice_on"]: self._ensure_voice()
+        if d["voice_on"] and d["voice_source"]=="edge": self._ensure_voice()
         self._style_voice(); self._refresh_link(); self._apply_talk_key()
         if self._state in ("READY","STANDBY","INITIALISING"): self._apply_state(self._idle_state())
         if self._server_ok is not True: self._fetch_providers()
@@ -2225,6 +2560,7 @@ class MainWindow(QMainWindow):
             if not delta: return
             if not self._answer: self._apply_state("ANSWERING")
             self._answer+=delta; self._live.append(delta); self.hud.set_caption(self._answer)
+            self.hud.kick(min(1.1,0.2+len(delta)/45))
         elif kind=="reset":
             self._answer=""; self._live.reset()
         elif kind=="tool":
@@ -2273,6 +2609,41 @@ class MainWindow(QMainWindow):
             else: self._live.discard()
         self._live=None; self._answer=""
 
+    # ── interrupt and the core's level ──
+    def _interrupt(self):
+        """ESC / INTERRUPT: stop the answer that is coming and anything being said."""
+        busy=self._cancel is not None or self._state in ("SPEAKING","THINKING","ANSWERING","LISTENING")
+        if self._recording: self._recording=False; self._rec_tmr.stop(); self._recorder.stop(); self._style_talk()
+        self._cancel_request(); self._stop_speaking()
+        self._apply_state(self._idle_state()); self.hud.fade_caption(4)
+        if busy: self._log.append_log("SYS: Interrupted.")
+    def _hud_level(self):
+        """How loud things are for the core: the microphone while listening, EDITH's voice while speaking."""
+        if self._recording: return self._recorder.level
+        if self._state=="SPEAKING": return self._speech_level()
+        return 0.0
+    def _speech_level(self):
+        if self._player is None: return 0.0
+        try: pos=self._player.position()
+        except Exception: return 0.0
+        if self._cloud and self._env:
+            i=int(pos//20)
+            return self._env[i] if 0<=i<len(self._env) else 0.0
+        words=self._words
+        if not words:  # no timings from the voice: a syllable-like flutter
+            return 0.35+0.3*abs(math.sin(pos*0.021))*abs(math.sin(pos*0.0067+1.3))
+        level=0.06
+        for i,(start,dur,kind) in enumerate(words):
+            if start<=pos<start+max(dur,80):
+                f=(pos-start)/max(dur,80)
+                if kind=="WordBoundary":
+                    level=0.45+0.5*math.sin(math.pi*f)
+                    if i!=self._word_i: self._word_i=i; self.hud.kick(0.35+min(0.6,dur/900))
+                else:
+                    level=0.35+0.35*abs(math.sin(pos*0.021))*abs(math.sin(pos*0.0067+1.3))
+                break
+        return level
+
     # ── voice in: hold to talk ──
     def _space_ok(self):
         if QApplication.activeModalWidget() is not None or QApplication.activePopupWidget() is not None: return False
@@ -2293,8 +2664,11 @@ class MainWindow(QMainWindow):
                 else:
                     if ev.isAutoRepeat(): return self._space_rec
                     if self._space_rec: self._space_rec=False; self._talk_up(); return True
-            elif key==Qt.Key.Key_Escape and t==QEvent.Type.KeyPress and QApplication.focusWidget() is self._input:
-                self._input.clearFocus(); self.hud.setFocus(); return True
+            elif key==Qt.Key.Key_Escape and t==QEvent.Type.KeyPress and QApplication.activeWindow() is self:
+                if QApplication.focusWidget() is self._input and self._input.text():
+                    self._input.clearFocus(); self.hud.setFocus(); return True
+                if self._drawer_open(): self._close_drawers(); return True
+                if self._overlay is None and QApplication.activeModalWidget() is None: self._interrupt(); return True
         return False
     def _app_state(self,state):
         if state!=Qt.ApplicationState.ApplicationActive and self._space_rec:
@@ -2367,17 +2741,80 @@ class MainWindow(QMainWindow):
     def _speak(self,text,token):
         if not self.cfg.data["voice_on"] or self.demo: return False
         clean=speech_text(text)
-        if not clean or not self._ensure_voice(): return False
-        voice=self.cfg.data["voice_name"]; self._speak_token=token
+        if not clean: return False
+        if self.cfg.data["voice_source"] in ("chat","voice"): return self._speak_cloud(clean,token,self.cfg.data["voice_source"])
+        return self._speak_edge(clean,token)
+    def _speak_cloud(self,clean,token,via,voice=None,headers=None,api=None,sample_done=None):
+        """Reads an answer with the AI company's voice, a few sentences at a time; the next piece
+        is fetched while one plays, and the core follows the real loudness of the voice."""
+        voice=voice or self.cfg.data["voice_name"]; api=api or self.api; self._speak_token=token
+        self._cloud=token; self._cloud_queue=[]; self._cloud_done=False; self._cloud_sample=sample_done
+        pieces=speech_pieces(clean)
+        def work():
+            for i,piece in enumerate(pieces):
+                if token!=self._speak_token: return
+                try: data=api.speak(piece,voice,via,headers)
+                except ApiError as e:
+                    msg,first=e.message,i==0
+                    self.ui(lambda: self._cloud_failed(token,msg,first,clean)); return
+                fd,path=tempfile.mkstemp(prefix="edith_voice_",suffix=".wav"); os.write(fd,data); os.close(fd)
+                env=wav_envelope(data)
+                self.ui(functools.partial(self._cloud_piece,token,path,env))
+            self.ui(lambda: self._cloud_finished(token))
+        threading.Thread(target=work,daemon=True).start(); return True
+    def _cloud_piece(self,token,path,env):
+        if token!=self._speak_token or not (self.cfg.data["voice_on"] or self._cloud_sample):
+            self._remove_file(path); return
+        self._cloud_queue.append((path,env))
+        if self._voice_path is None: self._play_next_cloud(token)
+    def _play_next_cloud(self,token):
+        if not self._cloud_queue: return
+        path,env=self._cloud_queue.pop(0); self._env=env
+        self._play(path,token,[],sample=self._cloud_sample is not None)
+    def _cloud_finished(self,token):
+        if token!=self._speak_token: return
+        self._cloud_done=True
+        if self._voice_path is None and not self._cloud_queue: self._speech_ended()
+    def _cloud_failed(self,token,msg,first,clean):
+        if token!=self._speak_token: return
+        done=self._cloud_sample
+        if done is not None: self._cloud=0; self._cloud_sample=None; done(msg); return
+        self._log.append_log(f"SYS: The voice couldn't read this aloud ({msg})."+(" Using the free voice instead." if first else ""))
+        self._cloud_done=True
+        if first: self._cloud=0; self._speak_edge(clean,token)
+        elif self._voice_path is None: self._speech_ended()
+    def play_sample(self,via,voice,headers,server_fn,done):
+        """Settings' ▶ PLAY: a short sample of a voice, with keys not saved yet."""
+        self._stop_speaking(); self._req_token+=1; token=self._req_token
+        if via=="edge":
+            self._sample_edge=done
+            if not self._speak_edge(VOICE_SAMPLE,token,voice=voice,sample=True): done("the free voice isn't installed yet")
+            return
+        api=EdithApi(server_fn,self.cfg)
+        self._speak_cloud(VOICE_SAMPLE,token,via,voice=voice,headers=headers,api=api,sample_done=done)
+    def _speak_edge(self,clean,token,voice=None,sample=False):
+        if not self._ensure_voice(): return False
+        voice=voice or (self.cfg.data["voice_name"] if self.cfg.data["voice_source"]=="edge" else VOICE_FOR_LANGUAGE.get(self.cfg.data["language"],"en-GB-SoniaNeural"))
+        self._speak_token=token
         def work():
             path=None
             try:
                 import edge_tts
                 fd,path=tempfile.mkstemp(prefix="edith_voice_",suffix=".mp3"); os.close(fd)
-                async def synth(): await edge_tts.Communicate(clean,voice).save(path)
+                words=[]
+                async def synth():
+                    try: comm=edge_tts.Communicate(clean,voice,boundary="WordBoundary")
+                    except TypeError: comm=edge_tts.Communicate(clean,voice)
+                    with open(path,"wb") as out:
+                        async for chunk in comm.stream():
+                            kind=chunk.get("type")
+                            if kind=="audio": out.write(chunk["data"])
+                            elif kind in ("WordBoundary","SentenceBoundary"):
+                                # offsets come in 100-nanosecond ticks
+                                words.append((chunk.get("offset",0)/10000,chunk.get("duration",0)/10000,kind))
                 asyncio.run(synth())
                 if os.path.getsize(path)<200: raise RuntimeError("no audio")
-                self.ui(lambda: self._play(path,token))
+                self.ui(lambda: self._play(path,token,words,sample=sample))
             except Exception:
                 if path:
                     try: os.remove(path)
@@ -2388,8 +2825,8 @@ class MainWindow(QMainWindow):
         if token==self._req_token: self.hud.fade_caption(10)
         if not self._voice_warned:
             self._voice_warned=True; self._log.append_log("SYS: The voice service can't be reached, so answers stay text only for now.")
-    def _play(self,path,token):
-        if token!=self._req_token or token!=self._speak_token or not self.cfg.data["voice_on"]:
+    def _play(self,path,token,words=None,sample=False):
+        if token!=self._req_token or token!=self._speak_token or not (self.cfg.data["voice_on"] or sample):
             self._remove_file(path); return
         if self._player is None:
             try:
@@ -2400,12 +2837,22 @@ class MainWindow(QMainWindow):
             except Exception:
                 self._player=None; self._remove_file(path); self._voice_unavailable(token); return
         self._stop_player(); self._voice_path=path; self._voice_warned=False
+        self._words=sorted(words or []); self._word_i=-1
+        if not self._cloud: self._env=[]
         self._player.setSource(QUrl.fromLocalFile(path)); self._player.play(); self._apply_state("SPEAKING")
     def _media_status(self,status):
         from PyQt6.QtMultimedia import QMediaPlayer
-        if status in (QMediaPlayer.MediaStatus.EndOfMedia,QMediaPlayer.MediaStatus.InvalidMedia): self._speech_ended()
+        if status not in (QMediaPlayer.MediaStatus.EndOfMedia,QMediaPlayer.MediaStatus.InvalidMedia): return
+        if self._cloud and self._cloud==self._speak_token:
+            self._stop_player()
+            if self._cloud_queue: self._play_next_cloud(self._speak_token); return
+            if not self._cloud_done: return  # the next piece is still on its way
+        self._speech_ended()
     def _speech_ended(self,failed=False):
-        self._stop_player()
+        self._stop_player(); self._cloud=0
+        for done_attr in ("_cloud_sample","_sample_edge"):
+            done=getattr(self,done_attr,None)
+            if done is not None: setattr(self,done_attr,None); done("")
         if self._state=="SPEAKING": self._apply_state(self._idle_state()); self.hud.fade_caption(6)
     def _stop_player(self):
         if self._player is not None:
@@ -2414,7 +2861,9 @@ class MainWindow(QMainWindow):
         path,self._voice_path=self._voice_path,None
         if path: self._remove_file(path)
     def _stop_speaking(self):
-        self._speak_token+=1; self._stop_player()
+        self._speak_token+=1; self._stop_player(); self._cloud=0
+        for path,_ in getattr(self,"_cloud_queue",[]): self._remove_file(path)
+        self._cloud_queue=[]
         if self._state=="SPEAKING": self._apply_state(self._idle_state())
     @staticmethod
     def _remove_file(path):
@@ -2441,7 +2890,7 @@ class MainWindow(QMainWindow):
     def _photo_error(self,text):
         self._photo=None; self._photo_label.setText(text); self._photo_label.setStyleSheet(f"color:{C.RED};background:transparent;")
     def _clear_photo(self):
-        self._photo=None; self._photo_label.setText("No photo loaded"); self._photo_label.setStyleSheet(f"color:{C.TEXT_DIM};background:transparent;")
+        self._photo=None; self._photo_label.setText("No file loaded — drop or click above to upload"); self._photo_label.setStyleSheet(f"color:{C.TEXT_DIM};background:transparent;")
     def _screenshot_screen(self):
         self.setWindowOpacity(0.0); QTimer.singleShot(300,self._grab_screen)
     def _grab_screen(self):
@@ -2570,6 +3019,11 @@ def _mock_server():
                 ok=self.headers.get("X-AI-Key")=="test-key-123"
                 return self._json(200,{"ok":True,"models":FALLBACK_PROVIDERS[0]["models"],"defaultModel":"auto"} if ok else {"ok":False,"code":"rejected","error":"Google Gemini rejected this key."})
             if self.path=="/api/chats/search": return self._json(200,{"chats":[]})
+            if self.path=="/api/speak":
+                body=json.loads(raw or b"{}")
+                if self.headers.get("X-AI-Key")!="test-key-123": return self._json(401,{"error":"Google Gemini rejected this API key.","kind":"key","needsKey":True})
+                data=wav_bytes(np.full(3200,4000,dtype=np.int16)); self.send_response(200); self.send_header("Content-Type","audio/wav")
+                self.send_header("Content-Length",str(len(data))); self.end_headers(); self.wfile.write(data); return
             if self.path!="/api/chat": return self._json(404,{"error":"Not found."})
             body=json.loads(raw or b"{}"); text=body.get("text","")
             if text=="needs key": return self._json(401,{"error":"EDITH needs an AI key. Add one in EDITH's settings on your phone.","needsKey":True,"kind":"key"})
@@ -2676,6 +3130,12 @@ def selftest():
             expect(api.chats()[0]["id"]=="cmock0000001" and api.open_chat("cmock0000001")["title"]=="Weather in Dubai","chats")
             expect(api.open_chat("cmissing0001") is None,"missing chat")
             api.forget(); expect([s[1] for s in srv.seen if s[0]=="DELETE"][-4:]==["/api/memory","/api/history","/api/chats","/api/lists"],"forget")
+            wav=api.speak("Hello there.","Kore","chat"); env=wav_envelope(wav)
+            expect(wav[:4]==b"RIFF" and len(env)==10 and 0.6<env[0]<0.7,"speak + envelope")
+            m,path,h,raw=[s for s in srv.seen if s[1]=="/api/speak"][-1]; body=json.loads(raw)
+            expect(body=={"text":"Hello there.","voice":"Kore","via":"chat"} and h.get("X-AI-Key")=="test-key-123","speak request")
+            try: api.speak("hi","Kore","chat",EdithApi.key_headers("gemini","wrong-key-123456")); raise AssertionError("bad key spoke")
+            except ApiError as e: expect(e.kind=="setup","speak bad key kind "+e.kind)
         finally:
             srv.shutdown()
     def t_config():
@@ -2703,6 +3163,13 @@ def selftest():
         b64=shrink_image(img); out=QImage(); out.loadFromData(base64.b64decode(b64),"JPEG")
         expect(not out.isNull() and max(out.width(),out.height())==1024 and len(b64)<=MAX_IMAGE_B64,"photo shrink")
         expect(app is not None,"no Qt application")
+    def t_voices():
+        expect(company_of_key("gsk_abc")=="groq" and company_of_key("sk-proj-x")=="openai" and company_of_key("sk-ant-x")=="anthropic","key companies")
+        expect(company_of_key("AIzaSyX")=="gemini" and company_of_key("sk-or-v1")=="openrouter" and company_of_key("hello")=="","more key companies")
+        parts=speech_pieces("First. "+"This is a sentence that goes on. "*30)
+        expect(parts[0].startswith("First.") and len(parts[0])<=160 and all(len(x)<=380 for x in parts) and " ".join(parts).count("goes on")==30,"speech pieces")
+        prov=clean_providers([{"id":"openai","label":"OpenAI","voices":[{"id":"marin","name":"Marin","note":"Warm"},{"id":"bad id!","name":"x"}],"defaultVoice":"marin"}])
+        expect(prov[0]["voices"]==[{"id":"marin","name":"Marin","note":"Warm"}] and prov[0]["defaultVoice"]=="marin","provider voices")
     def t_text():
         from PyQt6.QtGui import QFont as _F
         lines=wrap_text("one two three four five six seven eight nine ten",QFontMetrics(_F("Courier New",10)),80)
@@ -2710,7 +3177,7 @@ def selftest():
         expect(clean_history([{"role":"assistant","parts":[{"text":"a"}]},{"role":"x","parts":[]},"junk"])==[{"role":"model","parts":[{"text":"a"}]}],"history clean")
 
     check("wav encoding",t_wav); check("ndjson parsing (split lines and characters)",t_ndjson); check("error mapping",t_failure_map)
-    check("ids, local time, server address",t_ids_time); check("photo shrinking",t_image); check("text helpers",t_text)
+    check("ids, local time, server address",t_ids_time); check("photo shrinking",t_image); check("text helpers",t_text); check("voices: keys, pieces, catalog",t_voices)
     check("mock server round trip",t_mock_round_trip); check("config round trip in a temp home",t_config)
     failed=[r for r in results if not r[1]]
     print(f"\n{len(results)-len(failed)}/{len(results)} passed"); return 1 if failed else 0

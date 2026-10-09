@@ -19,8 +19,12 @@ export interface WebSettings {
   style: AnswerStyle
   /** The answer language, one of EDITH's nine. */
   language: string
-  /** Read answers aloud with the browser's voices. Off unless turned on. */
+  /** Read answers aloud. Off unless turned on. */
   speak: boolean
+  /** The voice that reads them: one of the AI company's voices, or "" for the browser's own (2.1). */
+  voiceName: string
+  /** Which key pays for that voice: the AI's ("chat") or the separate voice key ("voice"). */
+  voiceVia: '' | 'chat' | 'voice'
 }
 
 const KEYS = {
@@ -41,6 +45,8 @@ export const DEFAULT_SETTINGS: WebSettings = {
   style: 'normal',
   language: '',
   speak: false,
+  voiceName: '',
+  voiceVia: '',
 }
 
 /** Whether this browser kept the last thing written; false in some private windows. */
@@ -84,6 +90,8 @@ export function loadSettings(): WebSettings {
     style,
     language: text(raw.language, 5),
     speak: raw.speak === true,
+    voiceName: text(raw.voiceName, 40),
+    voiceVia: raw.voiceVia === 'chat' || raw.voiceVia === 'voice' ? raw.voiceVia : '',
   }
 }
 

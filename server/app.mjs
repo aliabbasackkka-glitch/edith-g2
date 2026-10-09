@@ -126,6 +126,7 @@ import {
   writeJSON,
 } from "./lib/storage.mjs";
 import { runTool, toolsFor, weather } from "./lib/tools.mjs";
+import { MAX_SPEAK_CHARS, hasVoices, speak } from "./lib/voices.mjs";
 
 let host = "local";
 
@@ -730,6 +731,32 @@ async function handleTranscribe(req, body, uk) {
   }
 }
 
+/* ── voice: answers read aloud with the voices of the wearer's AI company (2.1) ── */
+// Each answer is spoken a few sentences at a time, so this allows plenty per network.
+const SPEAK_PER_WINDOW = 400;
+
+async function handleSpeak(req, body) {
+  const h = (name) => (req.headers.get(name) || "").trim();
+  // Which of the phone's keys pays for the voice: the AI's own, or the separate voice key.
+  const via = body?.via === "voice" ? "voice" : "chat";
+  const providerId = (via === "voice" ? h("x-voice-provider") : h("x-ai-provider")).toLowerCase();
+  const key = via === "voice" ? h("x-voice-key") : h("x-ai-key");
+  if (!hasVoices(providerId)) return json({ error: "That AI has no voices of its own.", kind: "novoice" }, 400);
+  if (!plausibleKey(key)) return json(NEEDS_KEY, 401);
+  const text = String(body?.text || "").replace(/\s+/g, " ").trim().slice(0, MAX_SPEAK_CHARS);
+  if (!text) return json({ error: "Nothing to say.", kind: "other" }, 400);
+  if (!(await allowRate(`rate/speak/${clientNetwork(req)}`, SPEAK_PER_WINDOW, RELAY_WINDOW_MS))) {
+    return json({ error: "Too much speaking at once. Try again in a few minutes.", kind: "rate" }, 429);
+  }
+  try {
+    const wav = await speak(providerId, key, text, String(body?.voice || ""));
+    return new Response(wav, { status: 200, headers: { "Content-Type": "audio/wav", "Cache-Control": "no-store", ...corsHeaders() } });
+  } catch (err) {
+    const { status, payload } = errorPayload(err, null);
+    return json(payload, status);
+  }
+}
+
 /* ── keys and models ────────────────────────────────────────────────────── */
 async function handleCheckKey(req) {
   const h = (name) => (req.headers.get(name) || "").trim();
@@ -893,6 +920,7 @@ export async function handle(req, ctx) {
       return json({ lists: await getLists(uk) });
     }
     if (route === "chat" && req.method === "POST") return await handleChat(req, body, uk, device, background);
+    if (route === "speak" && req.method === "POST") return await handleSpeak(req, body);
     if (route === "check-key" && req.method === "POST") {
       const checked = await handleCheckKey(req);
       return json(checked, checked.code === "rate" ? 429 : 200);

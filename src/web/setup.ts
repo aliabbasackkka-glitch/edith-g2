@@ -4,7 +4,7 @@
 // Keys are checked with EDITH's server before they are kept, and kept only in this browser
 // (store.ts). Every string from the server is set as text, never as HTML.
 
-import type { ConnectLink, EdithApi, ModelInfo, ProviderInfo } from '../api'
+import type { Access, ConnectLink, EdithApi, ModelInfo, ProviderInfo, VoiceInfo } from '../api'
 import { LANGUAGES, guessLanguage } from '../i18n'
 import { fillModelSelect, matchModel, modelChoices } from '../models'
 import type { AnswerStyle } from '../prefs'
@@ -18,6 +18,20 @@ const ADDRESS = /^(https:\/\/)?[^\s/]+\.[^\s]+$/i
 const plausibleKey = (key: string) => /^[\x21-\x7e]{16,400}$/.test(key)
 const CONNECT_POLL_MS = 3000
 const STYLES: AnswerStyle[] = ['short', 'normal', 'detailed']
+/** What the voice sample says. */
+const SAMPLE = "Hi, I'm E.D.I.T.H. This is how I'll sound when I answer you."
+
+// Keys that say which company they are from (2.1): pasting one picks that company.
+const KEY_COMPANIES: Array<[string, RegExp]> = [
+  ['anthropic', /^sk-ant-/],
+  ['openrouter', /^sk-or-/],
+  ['groq', /^gsk_/],
+  ['xai', /^xai-/],
+  ['gemini', /^(AIza|AQ\.)/],
+  ['openai', /^sk-(proj|svcacct|admin)-/],
+]
+/** The company a key obviously belongs to, or "". */
+export const companyOfKey = (key: string): string => KEY_COMPANIES.find(([, re]) => re.test(key.trim()))?.[0] ?? ''
 
 /** "Anthropic (Claude)" -> "Claude", "Google Gemini" -> "Gemini", "Your own server" -> "Own server". */
 export function shortName(label: string): string {
@@ -58,6 +72,10 @@ export interface SetupHost {
   /** Deletes this browser's data on EDITH's server and here. False when the server couldn't be reached. */
   forget(): Promise<boolean>
   closed(): void
+  /** Access built from keys typed here and not saved yet, for the voice sample. */
+  accessFor(provider: string, key: string, voiceProvider: string, voiceKey: string): Access
+  /** Plays a voice sample (the page's audio player). Resolves when it ends or fails. */
+  playSample(wav: ArrayBuffer): Promise<void>
 }
 
 interface Checked {
@@ -91,6 +109,12 @@ export class Setup {
   private connect: { link: ConnectLink; timer: number; expires: number; polling: boolean } | null = null
   private returnFocus: HTMLElement | null = null
   private liveModels = 0
+  /** The voice chosen: a company voice id, "browser", or "off" (2.1). */
+  private ttsVoice = 'off'
+  private ttsVia: '' | 'chat' | 'voice' = ''
+  private sampling = 0
+  /** Whether a voice was chosen by hand (or saved before): if not, the company's default is offered. */
+  private ttsTouched = false
 
   constructor(private readonly host: SetupHost) {
     for (const { code, name } of LANGUAGES) this.language.append(new Option(name, code))
@@ -107,6 +131,8 @@ export class Setup {
       $('#suShow').setAttribute('aria-pressed', String(show))
     })
     $('#suCheck').addEventListener('click', () => void this.check())
+    $('#suTtsPlay').addEventListener('click', () => void this.playSample())
+    this.voiceKey.addEventListener('input', () => this.showVoices())
     this.key.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') void this.check()
     })
@@ -166,6 +192,9 @@ export class Setup {
     }
     this.fillProviders(providers, settings.provider)
     this.fillVoiceProviders(providers, settings.voiceProvider)
+    this.ttsVoice = !settings.speak ? 'off' : settings.voiceName || 'browser'
+    this.ttsVia = settings.voiceVia
+    this.ttsTouched = this.host.hasAccess()
     this.providerChanged({ keepModel: settings.model })
     const voiceBox = $('#suVoiceWrap')
     if (voice && !voiceBox.hidden) {
@@ -245,6 +274,7 @@ export class Setup {
           this.voiceProvider = p.id
           this.mark(this.voiceRow, p.id)
           this.voiceChanged()
+          this.showVoices()
         }),
       ),
     )
@@ -298,6 +328,8 @@ export class Setup {
       this.voiceChanged()
     }
 
+    this.showVoices()
+
     // With a saved key, the models it can use come from EDITH's server.
     const key = this.effectiveKey()
     if (info && (key || info.keyOptional) && info.id === settings.provider) void this.loadLiveModels(info, key, this.effectiveBase(), wanted)
@@ -326,6 +358,133 @@ export class Setup {
     if (this.checked) {
       this.checked = null
       setStatus(this.checkStatus, '')
+    }
+    // A key that says which company it is from picks that company, and shows its voices.
+    const company = companyOfKey(this.key.value)
+    if (company && company !== this.provider && this.info(company)) {
+      this.provider = company
+      this.mark(this.providerRow, company)
+      this.providerChanged()
+      const info = this.info(company)!
+      setStatus(
+        this.checkStatus,
+        `That's ${/^[AEIOU]/i.test(info.label) ? 'an' : 'a'} ${info.label} key, so ${shortName(info.label)} is selected${info.voices?.length ? ': pick its voice below.' : '.'}`,
+        'ok',
+      )
+    }
+  }
+
+  // ── Voice (2.1): the AI company's own voices, a browser voice, or none ──
+
+  /** Whose voices to offer: the AI's own, else the voice key's company, else none. */
+  private voiceSource(): { info: ProviderInfo; via: 'chat' | 'voice' } | null {
+    const info = this.info()
+    if (info?.voices?.length) return { info, via: 'chat' }
+    if (info && !info.voice) {
+      const voiceInfo = this.info(this.voiceProvider)
+      const settings = this.host.settings()
+      const hasKey = this.voiceKey.value.trim() || (settings.voiceProvider === this.voiceProvider && settings.voiceKey)
+      if (voiceInfo?.voices?.length && hasKey) return { info: voiceInfo, via: 'voice' }
+    }
+    return null
+  }
+
+  private showVoices(): void {
+    const info = this.info()
+    $('#suTtsWrap').hidden = !info
+    if (!info) return
+    const source = this.voiceSource()
+    const voices: VoiceInfo[] = source?.info.voices ?? []
+    const row = $<HTMLElement>('#suTtsVoices')
+    const pick = (value: string, via: '' | 'chat' | 'voice') => {
+      this.ttsVoice = value
+      this.ttsVia = via
+      this.mark(row, value)
+      $<HTMLButtonElement>('#suTtsPlay').disabled = value === 'off'
+      setStatus($('#suTtsStatus'), '')
+    }
+    const voiceButton = (v: VoiceInfo) => {
+      const b = this.button('', v.id, () => {
+        this.ttsTouched = true
+        pick(v.id, source!.via)
+      })
+      b.classList.add('su-voice')
+      const name = document.createElement('span')
+      name.className = 'v-name'
+      name.textContent = v.name
+      const note = document.createElement('span')
+      note.className = 'v-note'
+      note.textContent = v.note
+      b.append(name, note)
+      b.title = `${v.name}: ${v.note}`
+      return b
+    }
+    const extra = (label: string, value: string, note: string) => {
+      const b = this.button('', value, () => {
+        this.ttsTouched = true
+        pick(value, '')
+      })
+      b.classList.add('su-voice')
+      const name = document.createElement('span')
+      name.className = 'v-name'
+      name.textContent = label
+      const n = document.createElement('span')
+      n.className = 'v-note'
+      n.textContent = note
+      b.append(name, n)
+      return b
+    }
+    row.replaceChildren(
+      ...voices.map(voiceButton),
+      extra('BROWSER', 'browser', 'Free, this device'),
+      extra('SILENT', 'off', 'Text only'),
+    )
+    $('#suTtsNote').textContent = source
+      ? `${source.info.label} voices${source.via === 'voice' ? ' (your voice key)' : ''}: pick how E.D.I.T.H sounds. It uses your key.`
+      : `${shortName(info.label)} has no voices of its own. Use the browser's voice, or add a Groq, Gemini or OpenAI key for voice.`
+    // Keep the choice when it is still on offer, else the company's default voice.
+    const ids = new Set(voices.map((v) => v.id))
+    let chosen = this.ttsVoice
+    if (!this.ttsTouched && source) chosen = ''
+    if (!chosen || (chosen !== 'browser' && chosen !== 'off' && !ids.has(chosen))) {
+      chosen = source ? (source.info.defaultVoice && ids.has(source.info.defaultVoice) ? source.info.defaultVoice : voices[0]?.id ?? 'off') : 'off'
+    }
+    pick(chosen, ids.has(chosen) && source ? source.via : '')
+  }
+
+  private async playSample(): Promise<void> {
+    const status = $('#suTtsStatus')
+    if (this.ttsVoice === 'off') return
+    if (this.ttsVoice === 'browser') {
+      if (!('speechSynthesis' in window)) return setStatus(status, "This browser can't speak.", 'error')
+      window.speechSynthesis.cancel()
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(SAMPLE))
+      return
+    }
+    const source = this.voiceSource()
+    if (!source) return
+    const settings = this.host.settings()
+    const key = this.effectiveKey()
+    const voiceKey = this.voiceKey.value.trim() || (settings.voiceProvider === this.voiceProvider ? settings.voiceKey : '')
+    if (source.via === 'chat' && !key) return setStatus(status, 'Paste the key first.', 'error')
+    const ticket = ++this.sampling
+    setStatus(status, 'Asking for a sample...')
+    try {
+      const wav = await this.host.api.speak(
+        SAMPLE,
+        this.ttsVoice,
+        source.via,
+        undefined,
+        this.host.accessFor(this.provider, key, this.voiceProvider, voiceKey),
+      )
+      if (ticket !== this.sampling) return
+      setStatus(status, '▶ Playing')
+      await this.host.playSample(wav)
+      if (ticket === this.sampling) setStatus(status, '')
+    } catch (err) {
+      if (ticket !== this.sampling) return
+      const message = err instanceof Error ? err.message : ''
+      setStatus(status, message || "Couldn't play that voice.", 'error')
     }
   }
 
@@ -483,6 +642,9 @@ export class Setup {
       model: chosenModel,
       voiceProvider,
       voiceKey,
+      speak: this.ttsVoice !== 'off',
+      voiceName: this.ttsVoice === 'browser' || this.ttsVoice === 'off' ? '' : this.ttsVoice,
+      voiceVia: this.ttsVoice === 'browser' || this.ttsVoice === 'off' ? '' : this.ttsVia,
     }
     const modelName = [...this.model.options].find((o) => o.value === chosenModel)?.textContent || chosenModel
     this.host.saved({
@@ -491,7 +653,13 @@ export class Setup {
       modelName: chosenModel === 'auto' ? 'the fastest model available' : modelName.replace(/\s*\(recommended\)$/, ''),
       voiceLabel,
       freeTier: Boolean(this.checked?.freeTier),
-      prefsOnly: sameAi && voiceProvider === settings.voiceProvider && voiceKey === settings.voiceKey && chosenModel === settings.model,
+      prefsOnly:
+        sameAi &&
+        voiceProvider === settings.voiceProvider &&
+        voiceKey === settings.voiceKey &&
+        chosenModel === settings.model &&
+        next.voiceName === settings.voiceName &&
+        next.speak === settings.speak,
     })
     this.close()
   }

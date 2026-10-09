@@ -41,7 +41,14 @@ export class Speaker {
    * Reads text aloud. onDone runs once when it finishes, fails or is stopped: "blocked" when the
    * browser refused to speak before the page was tapped or clicked, "failed" when it could not speak.
    */
-  speak(text: string, language: string, onStart: () => void, onDone: (result: SpeechResult) => void): void {
+  speak(
+    text: string,
+    language: string,
+    onStart: () => void,
+    onDone: (result: SpeechResult) => void,
+    /** Each word as it is read, with its length: the HUD bounces on it. */
+    onWord?: (length: number) => void,
+  ): void {
     this.stop()
     const pieces = split(text.replace(/^[ \t]*- /gm, '').trim())
     if (!this.supported || !pieces.length) return onDone('done')
@@ -69,6 +76,9 @@ export class Speaker {
       }
       utterance.onend = () => {
         if (--left === 0) finish()
+      }
+      utterance.onboundary = (event) => {
+        if (session === this.session && event.name === 'word') onWord?.(event.charLength || 4)
       }
       utterance.onerror = (event) =>
         finish(event.error === 'not-allowed' ? 'blocked' : event.error === 'interrupted' || event.error === 'canceled' ? 'done' : 'failed')

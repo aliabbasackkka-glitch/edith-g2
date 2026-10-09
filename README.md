@@ -1,16 +1,31 @@
 # EDITH
 
-A voice assistant for [Even Realities G2](https://www.evenrealities.com/) smart glasses.
-Hold the temple or ring, ask anything, and the answer appears in front of you as it is
-written. EDITH talks to the AI you choose, with your own key.
+**Talk to any AI, with your own key: on Even Realities G2 glasses, in your browser, or on your PC.**
 
-No glasses? EDITH also runs **in your browser** and **on your PC**, with the same AIs, memories
-and saved chats:
+<p align="center">
+  <a href="https://edith.starktech.workers.dev/web"><b>▶&nbsp; TRY EDITH IN YOUR BROWSER</b></a>
+  &nbsp;·&nbsp; free &nbsp;·&nbsp; no sign-up &nbsp;·&nbsp; bring a free Groq or Gemini key
+</p>
 
-- **Website:** [edith.starktech.workers.dev/web](https://edith.starktech.workers.dev/web) - pick an
-  AI, paste your own key (it stays in your browser), then type or hold to talk.
-- **PC app:** [`desktop/edith.py`](desktop/) - a desktop window with a live HUD that speaks its
+<p align="center">
+  <a href="https://edith.starktech.workers.dev/web"><img src="store/screenshots/web/website.png" alt="EDITH's website: a gold network sphere in the middle that bounces when EDITH talks, the activity log on the right" width="900"></a>
+</p>
+
+Open **[edith.starktech.workers.dev/web](https://edith.starktech.workers.dev/web)**, pick an AI,
+paste its key (it stays in your browser) and pick how EDITH sounds. Then type, or hold the talk
+button (or Space) and speak. Drag the sphere to spin it; it bounces when EDITH talks.
+
+| Website on a phone | Pick a voice | The PC app |
+| --- | --- | --- |
+| <img src="store/screenshots/web/website-phone.png" alt="EDITH's website on a phone" width="220"> | <img src="store/screenshots/web/voices.png" alt="Pasting a Groq key picks Groq and shows its voices" width="420"> | <img src="store/screenshots/pc/pc-app.png" alt="EDITH's PC app" width="420"> |
+
+- **Website:** [edith.starktech.workers.dev/web](https://edith.starktech.workers.dev/web). Nothing to install.
+- **PC app:** [`desktop/edith.py`](desktop/), a desktop window with a live HUD that speaks its
   answers. Double-click `desktop/Run EDITH.bat` on Windows, or run `python desktop/edith.py`.
+- **G2 glasses:** EDITH on Even Hub. Hold the temple or ring, ask anything, and the answer appears
+  in front of you as it is written.
+
+### On the glasses
 
 | | |
 | --- | --- |
@@ -28,6 +43,9 @@ and saved chats:
   model you want. **Connect OpenRouter** works without copying a key at all.
 - **Voice for every AI.** If your AI can't hear (Claude, DeepSeek), add a second key just
   for speech-to-text.
+- **Pick EDITH's voice** (website and PC app). Paste a key and EDITH recognises the company and
+  shows its voices: 13 from OpenAI, 30 from Google Gemini, 12 from Groq (English and Arabic). Press
+  PLAY to hear one. They use your own key. For AIs without voices there are free ones.
 - **Useful out of the box.** Web search, Wikipedia, weather, news headlines, a daily
   briefing, reading a link, and memories of what you tell it.
 - **Saved chats.** Conversations are kept, named for you and searchable, and EDITH can
@@ -47,6 +65,9 @@ and saved chats:
 Both talk to the same server as the glasses and send `surface: "web"` or `"desktop"` with each
 question, so EDITH words its answers for a screen instead of the glasses.
 
+- **Voices** (`server/lib/voices.mjs`, `POST /api/speak`): answers are read aloud by the voice of
+  the AI company whose key you pasted (OpenAI, Gemini or Groq), a few sentences at a time, with your
+  key. `GET /api/providers` lists each company's voices. Nothing is stored.
 - **Website** (`web.html`, `src/web/`): built with the rest of the site and served at `/web`.
   Every visitor brings their own key, which is checked by the server and then kept only in that
   browser's local storage. Hold the talk button or Space to speak; answers stream into the activity

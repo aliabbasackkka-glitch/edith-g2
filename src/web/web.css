@@ -221,3 +221,37 @@ select.su-in option,select.su-in optgroup{background:var(--panel);color:var(--te
   .am-wrap{padding:10px}
 }
 @media (prefers-reduced-motion:reduce){.sys-bar .bar-fill{transition:none}}
+
+/* ── Mark LV layout: header drawers, the core, the drop zone, INTERRUPT ── */
+.topbar .left-brand{display:flex;align-items:center;gap:8px}
+.head-btn{width:28px;height:28px;flex:0 0 28px;display:inline-flex;align-items:center;justify-content:center;background:var(--panel2);color:var(--pri);border:1px solid var(--border-b);border-radius:4px;font-size:15px;line-height:1;cursor:pointer;font-family:inherit;letter-spacing:0;padding:0}
+.head-btn:hover{border-color:var(--pri)}
+.head-btn[aria-expanded="true"]{background:var(--pri);color:var(--bg);border-color:var(--pri)}
+.drawer{position:fixed;top:62px;left:12px;z-index:900;width:min(320px,calc(100vw - 24px));max-height:calc(100vh - 80px);overflow:auto;background:rgba(8,6,3,.97);border:1px solid var(--border-b);border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;box-shadow:0 14px 40px rgba(0,0,0,.6)}
+.drawer-h{font-size:.8em;color:var(--pri);letter-spacing:3px;font-weight:bold;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.drawer .panel{background:transparent;border-color:var(--border)}
+.drawer-note{font-size:.62em;line-height:1.5}
+.drawer #muteBtn{flex:none;width:100%}
+.hud-center{display:none}
+#radar{cursor:grab;touch-action:pan-y}
+#radar.grabbing{cursor:grabbing}
+.upload-area.drop{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 10px 12px}
+.upload-area .up-ico{width:26px;height:26px;color:var(--text-med)}
+.upload-area:hover .up-ico,.upload-area.drag .up-ico{color:var(--pri)}
+.upload-area .up-sub{font-size:.85em;letter-spacing:1px;color:var(--text-dim);opacity:.8}
+.photo-q{margin-top:6px}
+.btn-strip.red{color:var(--red);border-color:var(--red);background:#140006}
+.btn-strip.red:hover{background:#24000c}
+.btn-row #talkBtn{width:100%}
+@media (max-width:600px){.drawer{top:56px;left:8px}.topbar .left-brand span{display:none}}
+@media (min-width:901px){.sidebar.right>div:first-child{flex:1;display:flex;flex-direction:column;min-height:0}.sidebar.right .log-box{flex:1;max-height:none;min-height:180px}}
+
+/* ── Voice picker (2.1): the AI company's voices ── */
+.su-voices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;max-height:206px;overflow-y:auto;padding-right:2px}
+.su-btn.su-voice{height:auto;min-height:40px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:5px 4px;white-space:normal}
+.su-voice .v-name{font-size:1em;letter-spacing:1px}
+.su-voice .v-note{font-size:.78em;font-weight:normal;opacity:.75;letter-spacing:0}
+.su-tts-row{align-items:center;gap:10px;margin-top:8px}
+.su-tts-row .su-status{margin:0}
+#suTtsPlay:disabled{opacity:.4;cursor:default}
+@media (max-width:600px){.su-voices{grid-template-columns:repeat(2,minmax(0,1fr))}}

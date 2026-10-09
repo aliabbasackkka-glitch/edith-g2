@@ -1,6 +1,7 @@
 // The AI providers EDITH supports. The phone app reads this list from
 // GET /api/providers, so adding a provider here needs no new app version.
 
+import { defaultVoiceOf, voicesOf } from "../voices.mjs";
 import { ProviderError, providerErrorFrom, request } from "../http.mjs";
 import { LANGUAGES } from "../languages.mjs";
 import { sha256 } from "../secrets.mjs";
@@ -281,7 +282,10 @@ for (const [id, p] of Object.entries(PROVIDERS)) {
   p.models = (p.models || []).map(([modelId, label, ...hints]) => ({ id: modelId, name: englishName(label, hints), label, hints }));
 }
 
-/** What the phone app shows in its provider and model pickers. */
+/**
+ * What the phone app shows in its provider and model pickers. `voices` are the company's own
+ * voices for reading answers aloud (2.1): empty for the companies that sell none.
+ */
 export const publicCatalog = ({ ownServer = false } = {}) =>
   Object.values(PROVIDERS).filter((p) => ownServer || !p.needsBase).map(({ id, label, note, keyUrl, voice, models, needsBase, keyOptional }) => ({
     id,
@@ -291,6 +295,8 @@ export const publicCatalog = ({ ownServer = false } = {}) =>
     voice,
     models,
     defaultModel: models[0]?.id || "",
+    voices: voicesOf(id),
+    defaultVoice: defaultVoiceOf(id),
     ...(needsBase ? { needsBase: true } : {}),
     ...(keyOptional ? { keyOptional: true } : {}),
   }));

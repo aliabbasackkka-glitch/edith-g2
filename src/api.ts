@@ -115,6 +115,16 @@ export interface ProviderInfo {
   /** "Your own server": the wearer gives the address, and the key is optional (1.7.4). */
   needsBase?: boolean
   keyOptional?: boolean
+  /** The company's own voices for reading answers aloud, none for most (2.1). */
+  voices?: VoiceInfo[]
+  defaultVoice?: string
+}
+
+/** One of an AI company's voices: its id, name, and how the company describes it. */
+export interface VoiceInfo {
+  id: string
+  name: string
+  note: string
 }
 
 export interface ModelInfo {
@@ -416,6 +426,23 @@ export class EdithApi {
     })
     const data = await res.json().catch(() => ({}))
     return { ok: Boolean(data.ok), what: data.what, error: data.error }
+  }
+
+  /**
+   * Text read aloud by a company's own voice, as a WAV file (2.1). `via` says which key pays:
+   * the AI's ("chat") or the separate voice key ("voice"). `override` tries keys not saved yet.
+   */
+  async speak(text: string, voice: string, via: 'chat' | 'voice', signal?: AbortSignal, override?: Access): Promise<ArrayBuffer> {
+    const res = await this.request(
+      '/speak',
+      { method: 'POST', headers: this.headers({ 'Content-Type': 'application/json' }, override), body: JSON.stringify({ text, voice, via }) },
+      signal,
+    )
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw failure(res.status, data)
+    }
+    return res.arrayBuffer()
   }
 
   /** The words in a recording so far, to show while the wearer is still speaking. */

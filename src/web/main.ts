@@ -12,6 +12,7 @@ import { ActivityLog, type LogLine } from './log'
 import { MAX_RECORDING_MS, Mic, MicError, type MicProblem } from './mic'
 import { PhotoError, shrinkPhoto } from './photo'
 import { Setup, modelShort, shortName, type SavedSetup } from './setup'
+import { CloudVoice } from './voice'
 import { Speaker } from './speech'
 import {
   DEFAULT_SETTINGS,
@@ -89,6 +90,7 @@ const api = new EdithApi(__API_BASE__, () => device, access, () => '', () => {})
 const log = new ActivityLog($('#log'))
 const hud = new Hud($<HTMLCanvasElement>('#radar'), $<HTMLCanvasElement>('#wave'))
 const speaker = new Speaker()
+const cloudVoice = new CloudVoice()
 const mic = new Mic(
   (level) => onMicLevel(level),
   () => {
@@ -277,6 +279,13 @@ async function loadProviders(): Promise<ProviderInfo[]> {
   return providers
 }
 
+/** Stops whatever is being read aloud: the company voice or the browser's. */
+function stopSpeaking(): void {
+  speaker.stop()
+  cloudVoice.stop()
+  hud.setSpeechSource(null)
+}
+
 // ── Asking ─────────────────────────────────────────────────────────────
 
 function needsSetup(): boolean {
@@ -293,7 +302,7 @@ async function ask(payload: AskPayload, shown: string): Promise<boolean> {
     log.add('[SYS] Still answering - one moment.', 'sys')
     return false
   }
-  speaker.stop()
+  stopSpeaking()
   if (!chatId) {
     chatId = newChatId()
     saveChatId(chatId)
@@ -352,6 +361,7 @@ async function ask(payload: AskPayload, shown: string): Promise<boolean> {
           answer += delta
           edith.append(delta)
           showCaption(answer)
+          hud.kick(Math.min(1.1, 0.2 + delta.length / 45))
         },
         onReset: () => {
           // The model's words so far were thrown away (it went to use a tool, or another AI took over).
@@ -367,6 +377,7 @@ async function ask(payload: AskPayload, shown: string): Promise<boolean> {
     // LAT: how long until the first words arrived (the whole answer when it came in one piece).
     const ms = (firstWord || performance.now()) - started
     setBar('mLat', Math.min(ms, 10_000), 10_000, ms < 10_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 1000)}s`)
+
 
     history = reply.history.slice(-CHAT_TURNS)
     if (reply.chatId && cleanChatId(reply.chatId) && reply.chatId !== chatId) {
@@ -391,7 +402,10 @@ async function ask(payload: AskPayload, shown: string): Promise<boolean> {
     else setMode('idle')
     return true
   } catch (err) {
-    if (request !== current) return false
+    if (request !== current) {
+      ;(edith as LogLine | null)?.close()
+      return false
+    }
     ;(edith as LogLine | null)?.remove()
     if (voice) you.set('[YOU] (voice message)')
     showCaption('')
@@ -404,6 +418,34 @@ async function ask(payload: AskPayload, shown: string): Promise<boolean> {
 }
 
 function speakAnswer(text: string): void {
+  // The AI company's own voice (2.1), when one was chosen; the browser's voice if it fails.
+  if (settings.voiceName && cloudVoice.supported) {
+    const via = settings.voiceVia === 'voice' ? 'voice' : 'chat'
+    setMode('idle')
+    cloudVoice.speak(
+      text,
+      (piece, signal) => api.speak(piece, settings.voiceName, via, signal),
+      () => {
+        setMode('speaking')
+        hud.setSpeechSource(() => cloudVoice.level())
+      },
+      (result, err, started) => {
+        hud.setSpeechSource(null)
+        if (mode === 'speaking') setMode('idle')
+        if (result === 'blocked') showAudioBanner(true)
+        if (result === 'failed') {
+          const why = err instanceof Error && err.message ? err.message : 'it could not be reached'
+          log.add(`[SYS] The voice couldn't read this aloud (${why}).${started ? '' : ' Using the browser voice instead.'}`, 'sys')
+          if (!started) speakWithBrowser(text)
+        }
+      },
+    )
+    return
+  }
+  speakWithBrowser(text)
+}
+
+function speakWithBrowser(text: string): void {
   if (!speaker.supported) return setMode('idle')
   setMode('idle')
   speaker.speak(
@@ -418,6 +460,7 @@ function speakAnswer(text: string): void {
         log.add("[SYS] This browser couldn't read the answer aloud. Check its sound output.", 'sys')
       }
     },
+    (length) => hud.kick(0.35 + Math.min(0.6, length / 12)),
   )
 }
 
@@ -595,14 +638,14 @@ async function openChat(id: string): Promise<void> {
     return
   }
   closeDrawer()
-  speaker.stop()
+  stopSpeaking()
   showChat(chat)
   log.add(`[SYS] Opened "${chatTitle(chat)}".`, 'sys')
 }
 
 function newChat({ quiet = false } = {}): void {
   if (request) return void log.add('[SYS] Finish this question first.', 'sys')
-  speaker.stop()
+  stopSpeaking()
   // An empty chat that was never saved is simply reused.
   const unsaved = chatId && answersInChat === 0 && !chats.some((c) => c.id === chatId)
   if (!unsaved) chatId = newChatId()
@@ -751,7 +794,7 @@ async function startRecording(): Promise<void> {
     log.add(`[SYS] ${shortName(providerLabel())} can't understand speech. Type, or add a voice key in SETUP (Groq and Gemini keys are free).`, 'sys')
     return
   }
-  speaker.stop()
+  stopSpeaking()
   if (mode === 'speaking') setMode('idle')
   starting = true
   stopWhenReady = false
@@ -883,7 +926,7 @@ const audioInd = $('#audioInd')
 
 function paintMute(): void {
   const on = settings.speak
-  muteBtn.textContent = on ? '🔊' : '🔇'
+  muteBtn.textContent = on ? '🔊  READ ANSWERS ALOUD: ON' : '🔇  READ ANSWERS ALOUD: OFF'
   muteBtn.classList.toggle('on', on)
   muteBtn.classList.toggle('off', !on)
   muteBtn.setAttribute('aria-pressed', String(on))
@@ -895,6 +938,7 @@ function showAudioBanner(show: boolean): void {
 }
 
 function enableAudio(): void {
+  cloudVoice.unlock()
   if (audioInd.hidden) return
   speaker.unlock()
   showAudioBanner(false)
@@ -912,7 +956,7 @@ muteBtn.addEventListener('click', () => {
     speaker.unlock()
     log.add('[SYS] Answers will be read aloud.', 'sys')
   } else {
-    speaker.stop()
+    stopSpeaking()
     showAudioBanner(false)
     if (mode === 'speaking') setMode('idle')
     log.add('[SYS] Voice output off.', 'sys')
@@ -939,7 +983,7 @@ const imgFile = $<HTMLInputElement>('#imgFile')
 const imgArea = $('#imgArea')
 const imgTxt = $('#imgTxt')
 const imgQ = $<HTMLInputElement>('#imgQ')
-const PHOTO_PROMPT = '📷  Tap to choose or take a photo'
+const PHOTO_PROMPT = 'Drop a photo here  or  Click to browse'
 let photoTimer = 0
 
 function photoState(text: string, cls: '' | 'uploading' | 'done' = '', resetAfter = 0): void {
@@ -990,12 +1034,79 @@ imgArea.addEventListener('drop', (event) => {
 })
 
 $('#fsBtn').addEventListener('click', () => {
+  closeDrawers()
   if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
   else void document.documentElement.requestFullscreen?.().catch(() => {})
 })
-$('#btnSetup').addEventListener('click', () => void setup.open())
-$('#chatsBtn').addEventListener('click', openDrawer)
-$('#clearBtn').addEventListener('click', () => newChat())
+$('#btnSetup').addEventListener('click', () => {
+  closeDrawers()
+  void setup.open()
+})
+
+// ── Header drawers (Mark LV style): SETUP for the AI and its key, CONTROLS for the daily switches ──
+
+const drawers = { setup: $('#drawerSetup'), controls: $('#drawerControls') }
+const drawerButtons = { setup: $('#btnSetupDrawer'), controls: $('#btnControls') }
+
+function closeDrawers(): void {
+  for (const name of ['setup', 'controls'] as const) {
+    drawers[name].hidden = true
+    drawerButtons[name].setAttribute('aria-expanded', 'false')
+  }
+}
+
+function toggleDrawer(name: 'setup' | 'controls'): void {
+  const open = drawers[name].hidden
+  closeDrawers()
+  if (!open) return
+  drawers[name].hidden = false
+  drawerButtons[name].setAttribute('aria-expanded', 'true')
+  if (name === 'controls') void refreshChats()
+}
+
+drawerButtons.setup.addEventListener('click', () => toggleDrawer('setup'))
+drawerButtons.controls.addEventListener('click', () => toggleDrawer('controls'))
+document.addEventListener('pointerdown', (event) => {
+  const target = event.target as Node | null
+  if (!target) return
+  const inside = [drawers.setup, drawers.controls, drawerButtons.setup, drawerButtons.controls].some((el) => el.contains(target))
+  if (!inside) closeDrawers()
+})
+
+// ── Interrupt: stop the answer that is coming and anything being read aloud ──
+
+function interrupt(): void {
+  const busy = Boolean(request) || mic.recording || mode === 'speaking' || mode === 'thinking' || mode === 'answering'
+  const current = request
+  request = null
+  current?.controller.abort()
+  if (mic.recording || starting) {
+    mic.cancel()
+    starting = false
+    tapMode = false
+    paintTalk()
+    setBar('mMic', 0, 1, '--')
+  }
+  stopSpeaking()
+  setMode('idle')
+  if (busy) log.add('[SYS] Interrupted.', 'sys')
+}
+
+$('#stopBtn').addEventListener('click', interrupt)
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || setup.isOpen || !drawer.hidden) return
+  if (!drawers.setup.hidden || !drawers.controls.hidden) return void closeDrawers()
+  if (typingIn(event.target) && (event.target as HTMLInputElement).value) return
+  interrupt()
+})
+$('#chatsBtn').addEventListener('click', () => {
+  closeDrawers()
+  openDrawer()
+})
+$('#clearBtn').addEventListener('click', () => {
+  closeDrawers()
+  newChat()
+})
 $('#chClose').addEventListener('click', closeDrawer)
 $('#chNew').addEventListener('click', () => {
   closeDrawer()
@@ -1013,6 +1124,25 @@ drawer.addEventListener('keydown', (event) => {
 
 const setup = new Setup({
   api,
+  accessFor: (provider, key, voiceProvider, voiceKey) => ({
+    provider,
+    key,
+    model: '',
+    base: '',
+    voiceProvider: voiceKey ? voiceProvider : '',
+    voiceKey,
+  }),
+  playSample: (wav) =>
+    new Promise<void>((resolve) => {
+      stopSpeaking()
+      cloudVoice.unlock()
+      cloudVoice.speak(
+        'sample',
+        async () => wav,
+        () => {},
+        () => resolve(),
+      )
+    }),
   providers: () => providers,
   loadProviders,
   settings: () => settings,
@@ -1028,6 +1158,7 @@ const setup = new Setup({
     } else {
       log.add(`[SYS] AI link established: ${result.label} · ${result.modelName}.`, 'sys')
       if (result.voiceLabel) log.add(`[SYS] Voice runs on ${result.voiceLabel}.`, 'sys')
+      if (settings.voiceName) log.add(`[SYS] E.D.I.T.H will answer aloud as ${settings.voiceName}.`, 'sys')
       if (result.freeTier) log.add('[SYS] Your OpenRouter account has no credits yet, so E.D.I.T.H starts on a free model.', 'sys')
       if (!storageWorks) log.add("[SYS] This browser won't keep your key after you close it (private window?).", 'sys')
       if (!before.provider) log.add('[SYS] Ready. Type a command, or hold the talk button (or Space) and speak.', 'sys')
@@ -1039,7 +1170,7 @@ const setup = new Setup({
     } catch {
       return false
     }
-    speaker.stop()
+    stopSpeaking()
     forgetBrowser()
     settings = { ...DEFAULT_SETTINGS }
     setLanguage(guessLanguage())

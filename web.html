@@ -25,7 +25,11 @@
 
     <div class="layout">
       <header class="topbar">
-        <div class="left-brand">WEB EDITION</div>
+        <div class="left-brand">
+          <span>WEB EDITION</span>
+          <button type="button" class="head-btn" id="btnSetupDrawer" aria-expanded="false" aria-controls="drawerSetup" title="Setup: your AI and its key">&#9881;</button>
+          <button type="button" class="head-btn" id="btnControls" aria-expanded="false" aria-controls="drawerControls" title="Controls: voice, fullscreen, chats">&#9638;</button>
+        </div>
         <div class="center-brand">
           <h1>E.D.I.T.H</h1>
           <div class="tag">Talk to any AI</div>
@@ -65,7 +69,7 @@
       <main class="center">
         <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
         <div class="hud">
-          <canvas id="radar" width="600" height="600" aria-hidden="true"></canvas>
+          <canvas id="radar" width="600" height="600" aria-hidden="true" title="Drag to spin, tap to ping"></canvas>
           <div class="hud-center" id="hudCenter">E.D.I.T.H</div>
         </div>
         <div class="state-wrap">
@@ -81,12 +85,31 @@
           <div class="log-box" id="log" role="log" aria-live="polite" tabindex="0"></div>
         </div>
         <div class="panel">
+          <div class="section-h"><label for="imgQ">&#9656; FILE UPLOAD</label></div>
+          <label class="upload-area drop" id="imgArea">
+            <input type="file" id="imgFile" accept="image/*" />
+            <svg class="up-ico" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 23V7M9 13l7-7 7 7M6 27h20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div id="imgTxt">Drop a photo here &nbsp;or&nbsp; Click to browse</div>
+            <div class="up-sub">Images &middot; Screenshots &middot; JPG &middot; PNG &middot; WEBP</div>
+          </label>
+          <input id="imgQ" class="field photo-q" placeholder="Question about the photo (optional)" autocomplete="off" maxlength="500" />
+        </div>
+        <div class="panel">
           <div class="section-h"><label for="cmd">&#9656; COMMAND INPUT</label></div>
           <form class="input-row" id="cmdForm" autocomplete="off">
-            <input id="cmd" placeholder="Type a command..." autocomplete="off" maxlength="4000" enterkeyhint="send" />
+            <input id="cmd" placeholder="Type a command or question..." autocomplete="off" maxlength="4000" enterkeyhint="send" />
             <button type="submit" id="cmdSend" aria-label="Send">&#9656;</button>
           </form>
         </div>
+        <div class="btn-row">
+          <button type="button" class="btn-strip red" id="stopBtn">&#9995;&nbsp; INTERRUPT &nbsp;[ESC]</button>
+          <button type="button" class="btn-strip green" id="talkBtn" aria-describedby="talkHint">&#9210;&nbsp; HOLD TO TALK</button>
+          <span class="sr-only" id="talkHint">Hold the button, or hold Space, while you speak. Release to send.</span>
+        </div>
+      </aside>
+
+      <div class="drawer" id="drawerSetup" role="dialog" aria-label="Setup" hidden>
+        <div class="drawer-h">&#9672;&nbsp; SETUP</div>
         <div class="panel">
           <div class="section-h">&#9656; AI LINK</div>
           <div class="input-row">
@@ -95,23 +118,14 @@
           </div>
           <div class="hint" id="aiLinkState"></div>
         </div>
-        <div class="btn-row">
-          <div class="talk-row">
-            <button type="button" class="btn-strip green" id="talkBtn" aria-describedby="talkHint">&#9210;&nbsp; HOLD TO TALK</button>
-            <button type="button" class="btn-strip off" id="muteBtn" aria-pressed="false" aria-label="Read answers aloud" title="Read answers aloud: off">&#128263;</button>
-          </div>
-          <span class="sr-only" id="talkHint">Hold the button, or hold Space, while you speak. Release to send.</span>
-          <button type="button" class="btn-strip dim" id="fsBtn">&#9974;&nbsp; FULLSCREEN</button>
-          <button type="button" class="btn-strip green" id="chatsBtn" aria-haspopup="dialog">&#8801;&nbsp; SAVED CHATS</button>
-        </div>
-        <div class="panel">
-          <div class="section-h"><label for="imgQ">&#9656; ASK ABOUT A PHOTO</label></div>
-          <input id="imgQ" class="field photo-q" placeholder="Ask a question about the photo (optional)" autocomplete="off" maxlength="500" />
-          <label class="upload-area" id="imgArea">
-            <input type="file" id="imgFile" accept="image/*" />
-            <div id="imgTxt">&#128247;&nbsp; Tap to choose or take a photo</div>
-          </label>
-        </div>
+        <div class="hint drawer-note">Pick the AI that answers and paste its own key, choose how long answers are and their language. Your key stays in this browser.</div>
+      </div>
+
+      <div class="drawer" id="drawerControls" role="dialog" aria-label="Controls" hidden>
+        <div class="drawer-h">&#9672;&nbsp; CONTROLS</div>
+        <button type="button" class="btn-strip off" id="muteBtn" aria-pressed="false">&#128263;&nbsp; READ ANSWERS ALOUD: OFF</button>
+        <button type="button" class="btn-strip dim" id="fsBtn">&#9974;&nbsp; FULLSCREEN</button>
+        <button type="button" class="btn-strip green" id="chatsBtn" aria-haspopup="dialog">&#8801;&nbsp; SAVED CHATS</button>
         <div class="panel">
           <div class="section-h">&#9656; RECENT CHATS</div>
           <div class="mem-list" id="memList"><div class="mem-item">loading...</div></div>
@@ -120,7 +134,7 @@
             <button type="button" class="toggle-btn" id="clearBtn">&#10005; CLEAR</button>
           </div>
         </div>
-      </aside>
+      </div>
 
       <div class="status-strip" aria-label="Status">
         <div class="status-pill"><div class="k">AI CORE</div><div class="v" id="pAi">--</div></div>
@@ -201,6 +215,17 @@
           <div class="su-lbl"><label for="suVoiceKey">KEY FOR VOICE</label></div>
           <input class="su-in" id="suVoiceKey" type="password" placeholder="Paste a key for voice" spellcheck="false" autocomplete="off" autocapitalize="off" />
           <div class="su-links"><a id="suVoiceLink" href="#" target="_blank" rel="noopener noreferrer" hidden>GET A KEY &#8599;</a></div>
+        </div>
+
+        <div id="suTtsWrap" hidden>
+          <div class="su-sep"></div>
+          <div class="su-lbl">E.D.I.T.H'S VOICE</div>
+          <div class="su-note su-note-top" id="suTtsNote"></div>
+          <div class="su-voices" id="suTtsVoices" role="group" aria-label="Voice"></div>
+          <div class="su-row su-tts-row">
+            <button type="button" class="su-mini" id="suTtsPlay">&#9654; PLAY SAMPLE</button>
+            <div class="su-status" id="suTtsStatus" role="status"></div>
+          </div>
         </div>
 
         <div class="su-sep"></div>
