@@ -157,6 +157,7 @@ export const it: Strings = {
   'voice.noneCanHear': "{name} non capisce la voce, e nemmeno le tue altre IA. Tocca Aggiungi un'IA e aggiungi una chiave Groq o Gemini gratuita, oppure scrivi su questo schermo.",
 
   'note.stillAnswering': 'EDITH sta ancora rispondendo. Aspetta un momento o tocca due volte gli occhiali per annullare.',
+  'note.approveOnGlasses': 'In attesa del tuo tocco sugli occhiali: {what}',
   'note.modelUnavailable': '{model} non è disponibile con questa chiave, quindi EDITH usa {chosen}.',
   'note.fastestModel': 'il modello disponibile più veloce',
   'note.added': '{provider} aggiunto. EDITH risponde con {model}. Puoi cambiare il modello nelle Impostazioni.',
@@ -535,4 +536,9 @@ export const it: Strings = {
   'g.yourHistory': 'Prima in questa chat',
   'g.noHistory': 'Qui non hai ancora chiesto niente.',
   'g.historyHint': 'Tocca per la lista. Doppio tocco chiude.',
+  'g.status.pc': 'SUL TUO PC...',
+  'g.status.linking': 'COLLEGO IL PC...',
+  'g.status.approve': 'APPROVARE?',
+  'g.approveHint': 'Tocca per approvare. Doppio tocco annulla.',
+  'g.approveCancelled': 'Annullato. Sul PC non e successo nulla.',
 }

@@ -157,6 +157,7 @@ export const fr: Strings = {
   'voice.noneCanHear': '{name} ne comprend pas la parole, et vos autres IA non plus. Touchez Ajouter une IA et ajoutez une clé Groq ou Gemini gratuite, ou écrivez sur cet écran.',
 
   'note.stillAnswering': 'EDITH répond encore. Patientez un instant ou touchez deux fois les lunettes pour annuler.',
+  'note.approveOnGlasses': 'En attente de ton toucher sur les lunettes : {what}',
   'note.modelUnavailable': "{model} n'est pas disponible avec cette clé, EDITH utilise donc {chosen}.",
   'note.fastestModel': 'le modèle disponible le plus rapide',
   'note.added': '{provider} ajouté. EDITH répond avec {model}. Vous pouvez changer le modèle dans les Réglages.',
@@ -535,4 +536,9 @@ export const fr: Strings = {
   'g.yourHistory': 'Plus tot dans cette conversation',
   'g.noHistory': 'Rien n a encore ete demande ici.',
   'g.historyHint': 'Tape pour la liste. Double tape pour fermer.',
+  'g.status.pc': 'SUR TON PC...',
+  'g.status.linking': 'LIAISON DU PC...',
+  'g.status.approve': 'APPROUVER ?',
+  'g.approveHint': 'Tape pour approuver. Double tape pour annuler.',
+  'g.approveCancelled': 'Annule. Rien ne s est lance sur ton PC.',
 }

@@ -157,6 +157,7 @@ export const ko: Strings = {
   'voice.noneCanHear': '{name}은(는) 음성을 이해하지 못하고, 다른 AI도 마찬가지입니다. AI 추가를 탭해 무료 Groq 또는 Gemini 키를 추가하거나, 이 화면에서 입력하세요.',
 
   'note.stillAnswering': 'EDITH가 아직 답변 중입니다. 잠시 기다리거나 안경을 두 번 탭해서 취소하세요.',
+  'note.approveOnGlasses': '안경에서 탭을 기다리는 중: {what}',
   'note.modelUnavailable': '이 키로는 {model}을(를) 사용할 수 없어 EDITH가 {chosen}을(를) 사용합니다.',
   'note.fastestModel': '사용 가능한 가장 빠른 모델',
   'note.added': '{provider}을(를) 추가했습니다. EDITH는 {model}(으)로 답변합니다. 모델은 설정에서 바꿀 수 있습니다.',
@@ -535,4 +536,9 @@ export const ko: Strings = {
   'g.yourHistory': '이 대화의 지난 내용',
   'g.noHistory': '이 대화에서는 아직 질문이 없습니다.',
   'g.historyHint': '탭하면 목록, 두 번 탭하면 닫기.',
+  'g.status.pc': 'PC에서 작업 중...',
+  'g.status.linking': 'PC 연결 중...',
+  'g.status.approve': '승인할까요?',
+  'g.approveHint': '탭하면 승인, 두 번 탭하면 취소.',
+  'g.approveCancelled': '취소했어요. PC에서 아무것도 실행하지 않았어요.',
 }

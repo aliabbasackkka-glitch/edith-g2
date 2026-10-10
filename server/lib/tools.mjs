@@ -10,9 +10,77 @@ import { changeList, cleanName, findList, getLists, saveList } from "./lists.mjs
 import { LANGUAGES } from "./languages.mjs";
 import { UnsafeAddressError, publicFetch, publicHttps } from "./net.mjs";
 import { cityAt, nearbyPlaces } from "./places.mjs";
+import { askToApprove, callPc, linkPc, unlinkPc } from "./agent.mjs";
 import { saveMemory } from "./storage.mjs";
 
+const obj = (properties, required = []) => ({ type: "object", properties, required });
+const str = (description) => ({ type: "string", description });
+
 const DEFS = {
+  // ── EDITH 3 (beta): the user's own PC, through EDITH's PC app (lib/agent.mjs) ──
+  link_pc: {
+    description:
+      "Link the user's PC so EDITH can work on it, with the 6-digit code EDITH's PC app shows (e.g. 'link my PC, code 482 193'). Pass only the digits.",
+    parameters: obj({ code: str("The 6 digits.") }, ["code"]),
+  },
+  unlink_pc: { description: "Stop EDITH using the user's linked PC.", parameters: obj({}) },
+  pc_status: {
+    description: "Whether the user's linked PC is on, its name, battery, free disk space and where EDITH's workspace folder is.",
+    parameters: obj({}),
+  },
+  pc_find_files: {
+    description:
+      "Find files on the user's PC by name, in Desktop, Documents, Downloads, Pictures, Videos, Music, OneDrive and EDITH's workspace. Newest first, with sizes and dates.",
+    parameters: obj({ query: str("Words in the file name, e.g. 'resume' or 'invoice march'."), type: str("Optional: an extension or kind, e.g. pdf, docx, image, video, code.") }, ["query"]),
+  },
+  pc_list_folder: {
+    description: "List a folder on the user's PC: 'workspace', 'desktop', 'documents', 'downloads', or a full path.",
+    parameters: obj({ path: str("The folder.") }, ["path"]),
+  },
+  pc_read_file: {
+    description: "Read a text file on the user's PC: notes, documents (.docx too), code, CSV, web pages. About the first 12,000 characters.",
+    parameters: obj({ path: str("A full path from pc_find_files or pc_list_folder, or a path in the workspace.") }, ["path"]),
+  },
+  pc_write_file: {
+    description:
+      "Create or replace a text file on the user's PC: a web page, a report, a script, notes. Paths inside EDITH's workspace (like 'my-site/index.html') need no approval; anywhere else waits for the user's tap. Open it with pc_open afterwards to show them.",
+    parameters: obj({ path: str("Where, e.g. 'my-site/index.html'."), content: str("The whole file.") }, ["path", "content"]),
+  },
+  pc_open: {
+    description:
+      "Open something on the user's PC screen: a file or folder, 'workspace', or a link. An https:// link opens their browser; a mailto: link (mailto:a@b.com?subject=...&body=...) opens a drafted email for them to check and send.",
+    parameters: obj({ target: str("The file, folder or link.") }, ["target"]),
+  },
+  pc_run_command: {
+    description:
+      "Run a command on the user's PC (PowerShell on Windows, the shell elsewhere): launch an app, check something, run a script in the workspace. It always waits for the user to tap the glasses to approve; say so. Keep it short and safe, and never delete anything they didn't clearly ask to.",
+    parameters: obj({ command: str("The command."), why: str("What it does, in a few words, shown when they approve.") }, ["command", "why"]),
+  },
+  pc_clipboard: {
+    description: "Read the user's PC clipboard, or put text on it (pass text) for them to paste.",
+    parameters: obj({ text: str("Text to put on the clipboard; leave out to read it.") }),
+  },
+  pc_notify: {
+    description: "Show a note on the user's PC screen, e.g. a reminder or something to read at their desk.",
+    parameters: obj({ message: str("The note.") }, ["message"]),
+  },
+  pc_schedule_task: {
+    description:
+      "Have the user's PC do something with EDITH on a schedule, e.g. every morning research a topic and save a report in the workspace. It runs on the PC with its own AI key while EDITH's PC app is open.",
+    parameters: obj(
+      {
+        task: str("The job, as an instruction to EDITH, e.g. 'Research today's AI news and write a short report'."),
+        time: str("24-hour HH:MM, the PC's time."),
+        repeat: { type: "string", enum: ["once", "daily", "weekdays"] },
+      },
+      ["task", "time"],
+    ),
+  },
+  pc_tasks: {
+    description: "List the tasks scheduled on the user's PC, or cancel one (pass cancel with its id).",
+    parameters: obj({ cancel: str("The id of a task to cancel.") }),
+  },
+
   save_memory: {
     description:
       "Silently store a fact about the user. Call whenever they reveal identity, preferences, style, projects, relationships, habits or anything worth remembering. Never announce it.",
@@ -175,6 +243,8 @@ const DEFS = {
   },
 };
 
+const PC_TOOLS = ["pc_status", "pc_find_files", "pc_list_folder", "pc_read_file", "pc_write_file", "pc_open", "pc_run_command", "pc_clipboard", "pc_notify", "pc_schedule_task", "pc_tasks"];
+
 const ALWAYS = ["save_memory", "web_search", "wikipedia", "weather_report", "news_headlines", "daily_briefing", "read_link"];
 
 /**
@@ -192,6 +262,10 @@ export function toolsFor(can = {}) {
   if (can.pick) names.push("ask_to_pick");
   if (can.home) names.push("home_status", "home_control");
   if (can.actions) names.push("run_action");
+  // EDITH 3: the user's own PC, once it is linked; until then only the way to link it.
+  if (can.pc) names.push(...PC_TOOLS, "unlink_pc");
+  else if (can.pcLinkable) names.push("link_pc");
+
   return names.map((name) => ({ name, ...DEFS[name] }));
 }
 
@@ -492,8 +566,26 @@ export async function runTool(name, args, ctx) {
           news,
         };
       }
-      default:
+      case "link_pc":
+        return await linkPc(ctx.uk, args.code);
+      case "unlink_pc":
+        return await unlinkPc(ctx.uk);
+      case "pc_run_command": {
+        const command = String(args.command || "").trim();
+        if (!command) return { error: "No command given." };
+        const why = String(args.why || "").replace(/\s+/g, " ").trim().slice(0, 80);
+        return await askToApprove(ctx.uk, ctx.flags, name, { command }, `${why ? `${why}: ` : ""}${command.slice(0, 140)}`);
+      }
+      default: {
+        if (PC_TOOLS.includes(name)) {
+          const result = await callPc(ctx.uk, name, args);
+          // The PC asks first for anything outside EDITH's workspace.
+          if (result?.needs_approval) return await askToApprove(ctx.uk, ctx.flags, name, args, String(result.what || name));
+          return result;
+        }
         return { error: `Unknown tool ${name}` };
+      }
+
     }
   } catch (e) {
     return { error: String(e.message || e) };

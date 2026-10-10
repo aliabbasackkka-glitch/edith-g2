@@ -192,6 +192,18 @@ export function buildSystemPrompt({
         "never say it is done.\n"
       : "") +
     (able.actions ? "- Their own actions: call run_action with the name of the action they mean.\n" : "") +
+    (able.pc
+      ? `- Their PC ("${String(able.pc).slice(0, 40)}", EDITH 3 beta): you can work on it with the pc_ tools. Find and ` +
+        "read their files; build things (web pages, reports, scripts, notes) in EDITH's workspace with pc_write_file, then " +
+        "pc_open them; open links, or a drafted email as a mailto: link for them to send; use the clipboard; put a note on " +
+        "the screen; schedule tasks the PC runs later; and run commands with pc_run_command, which waits for their tap to " +
+        "approve. Use several tools in a row to finish the job, then say in one or two lines what you did and where it is. " +
+        "Never open, read or send passwords, keys or private files they didn't ask about, and never delete anything " +
+        "unless they clearly asked.\n"
+      : able.pcLinkable
+        ? "- Their PC: if they want you to work on their computer (files, building something, commands), tell them to " +
+          "open EDITH's PC app, press LINK GLASSES and say the 6-digit code it shows; then call link_pc with it.\n"
+        : "") +
     "- Daily briefing: when the user asks to be briefed, call daily_briefing with their city from memory. If you don't " +
     "know their city, ask for it. Present it as short lines: the date, the weather in one line, then up to three " +
     "headlines, each on its own line starting with '- '.\n\n" +

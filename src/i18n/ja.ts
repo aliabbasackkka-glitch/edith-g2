@@ -157,6 +157,7 @@ export const ja: Strings = {
   'voice.noneCanHear': '{name} は音声を理解できず、ほかの AI も対応していません。「AI を追加」をタップして無料の Groq か Gemini のキーを追加するか、この画面で入力してください。',
 
   'note.stillAnswering': 'EDITH はまだ回答中です。少し待つか、メガネをダブルタップしてキャンセルしてください。',
+  'note.approveOnGlasses': 'メガネでのタップを待っています: {what}',
   'note.modelUnavailable': 'このキーでは {model} を使えないため、EDITH は {chosen} を使います。',
   'note.fastestModel': '使える中で最速のモデル',
   'note.added': '{provider} を追加しました。EDITH は {model} で回答します。モデルは設定で変更できます。',
@@ -535,4 +536,9 @@ export const ja: Strings = {
   'g.yourHistory': 'このチャットのこれまで',
   'g.noHistory': 'このチャットではまだ聞いていません。',
   'g.historyHint': 'タップで一覧、2回タップで閉じる。',
+  'g.status.pc': 'PCで作業中...',
+  'g.status.linking': 'PCとリンク中...',
+  'g.status.approve': '承認しますか?',
+  'g.approveHint': 'タップで承認、2回タップで取消。',
+  'g.approveCancelled': 'キャンセルしました。PCでは何も実行していません。',
 }

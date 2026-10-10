@@ -157,6 +157,7 @@ export const de: Strings = {
   'voice.noneCanHear': '{name} versteht keine Sprache, und deine anderen KIs auch nicht. Tippe auf KI hinzufügen und füge einen kostenlosen Groq- oder Gemini-Schlüssel hinzu, oder schreibe auf diesem Bildschirm.',
 
   'note.stillAnswering': 'EDITH antwortet noch. Warte kurz oder tippe doppelt auf die Brille, um abzubrechen.',
+  'note.approveOnGlasses': 'Wartet auf dein Tippen auf der Brille: {what}',
   'note.modelUnavailable': '{model} ist mit diesem Schlüssel nicht verfügbar, daher nutzt EDITH {chosen}.',
   'note.fastestModel': 'das schnellste verfügbare Modell',
   'note.added': '{provider} hinzugefügt. EDITH antwortet mit {model}. Du kannst das Modell in den Einstellungen ändern.',
@@ -535,4 +536,9 @@ export const de: Strings = {
   'g.yourHistory': 'Frueher in diesem Chat',
   'g.noHistory': 'In diesem Chat wurde noch nichts gefragt.',
   'g.historyHint': 'Tippen fuer die Liste. Zweimal tippen schliesst.',
+  'g.status.pc': 'AM PC...',
+  'g.status.linking': 'PC WIRD VERBUNDEN...',
+  'g.status.approve': 'ERLAUBEN?',
+  'g.approveHint': 'Tippen erlaubt. Zweimal tippen bricht ab.',
+  'g.approveCancelled': 'Abgebrochen. Am PC ist nichts passiert.',
 }

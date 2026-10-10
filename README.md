@@ -8,6 +8,11 @@
 </p>
 
 <p align="center">
+  <b>New in EDITH 3 (beta):</b> your glasses can use your PC. &nbsp;·&nbsp;
+  <a href="https://discord.gg/pfzcx63zv"><b>💬 Join the EDITH Discord</b></a>
+</p>
+
+<p align="center">
   <a href="https://edith.starktech.workers.dev/web"><img src="store/screenshots/web/website.png" alt="EDITH's website: a gold network sphere in the middle that bounces when EDITH talks, the activity log on the right" width="900"></a>
 </p>
 
@@ -24,6 +29,35 @@ button (or Space) and speak. Drag the sphere to spin it; it bounces when EDITH t
   answers. Double-click `desktop/Run EDITH.bat` on Windows, or run `python desktop/edith.py`.
 - **G2 glasses:** EDITH on Even Hub. Hold the temple or ring, ask anything, and the answer appears
   in front of you as it is written.
+
+## EDITH 3 (beta): your glasses use your PC
+
+Ask from the glasses and EDITH does it on your computer. No agent to install, no server to rent,
+no plugin or relay: it uses the AI key you already gave EDITH.
+
+1. Open the PC app (`desktop/edith.py`), press ⚙ and then **LINK GLASSES**. It shows a 6-digit code.
+2. On the glasses, say **"Link my PC, code 482 193"**. Done.
+
+Then ask things like:
+
+- *"Find my resume on my PC and tell me when I last changed it."*
+- *"Make me a one-page website for my bakery and open it."* (built in the **EDITH Workspace** folder)
+- *"Read the notes on my desktop and summarise them."*
+- *"Draft an email to Sam saying I'm running late."* (opens a draft for you to check and send)
+- *"Every morning at 7, research AI news and save me a report."* (runs on your PC with your key)
+- *"Put this on my PC's clipboard"*, *"Put a note on my screen"*, *"Open Spotify."*
+
+**Safe by default.**
+- **Asks first:** anything outside the workspace folder, every command and every program waits until
+  you **tap the glasses to approve** (double-tap cancels).
+- **Stays out of private places:** EDITH stays inside your user folder and never touches keys,
+  password stores, browser profiles or app data.
+- **Nothing on your PC is opened to the internet:** the app asks EDITH's server for work.
+- **You're in control:** every action shows in the PC app's activity log, and **PAUSE** or
+  **UNLINK** stops it at once.
+
+How it works: `server/lib/agent.mjs` (link codes, a job queue per PC, approvals) and the `pc_*`
+tools in `server/lib/tools.mjs`; the PC side is `PcAgent` in `desktop/edith.py`.
 
 ### On the glasses
 

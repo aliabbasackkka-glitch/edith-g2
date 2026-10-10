@@ -158,6 +158,7 @@ export const ar: Omit<Strings, GlassesKey> = {
   'voice.noneCanHear': '{name} لا يفهم الكلام، ولا يفهمه أي ذكاء اصطناعي آخر لديك. انقر «إضافة ذكاء اصطناعي» وأضف مفتاح Groq أو Gemini مجانيًا، أو اكتب على هذه الشاشة.',
 
   'note.stillAnswering': 'ما زالت EDITH تجيب. انتظر لحظة، أو انقر مرتين على النظارة للإلغاء.',
+  'note.approveOnGlasses': 'بانتظار لمستك على النظارة: {what}',
   'note.modelUnavailable': '{model} غير متاح بهذا المفتاح، لذلك تستخدم EDITH {chosen}.',
   'note.fastestModel': 'أسرع نموذج متاح',
   'note.added': 'أُضيف {provider}. تجيب EDITH عبر {model}. يمكنك تغيير النموذج من الإعدادات.',
@@ -539,4 +540,9 @@ export const arLatin: Pick<Strings, GlassesKey> = {
   'g.yourHistory': 'Sabiqan fi hathi el muhadatha',
   'g.noHistory': 'Ma saalt shi fi hathi el muhadatha.',
   'g.historyHint': 'Ingur lel qaima. Ingur marratain lel ighlaq.',
+  'g.status.pc': 'ALA AL-PC...',
+  'g.status.linking': 'RABT AL-PC...',
+  'g.status.approve': 'MUWAFAQA?',
+  'g.approveHint': 'Ingur lel muwafaqa. Ingur marratain lel ilgha.',
+  'g.approveCancelled': 'Tam al-ilgha. Lam yatim shay ala al-PC.',
 }

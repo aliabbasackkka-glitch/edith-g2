@@ -27,7 +27,8 @@ export interface ChatReply {
   timers?: Array<{ ms: number; label: string; at?: string }>
   cancelTimers?: boolean
   /** Something that unlocks or opens a way into the home, waiting for a tap on the glasses. */
-  confirm?: { what: string; token: string }
+  /** Something waiting for a tap on the glasses: a door to unlock, or a job on the wearer's PC (EDITH 3). */
+  confirm?: { what: string; token: string; kind?: string }
   /** A list to show on the glasses and tick off (1.7.0). */
   list?: SavedList
   /** Things to choose between on the glasses, e.g. which café to walk to (1.7.0). */
@@ -417,15 +418,18 @@ export class EdithApi {
     return { ok: Boolean(data.ok), error: data.error ? String(data.error) : undefined }
   }
 
-  /** Carries out what the wearer tapped to confirm: unlocking a door, opening a garage. */
-  async confirm(token: string, home: HomeSettings): Promise<{ ok: boolean; what?: string; error?: string }> {
+  /**
+   * Carries out what the wearer tapped to confirm: unlocking a door, opening a garage, or
+   * (EDITH 3) a job on their PC, whose outcome comes back as `said`.
+   */
+  async confirm(token: string, home?: HomeSettings): Promise<{ ok: boolean; what?: string; said?: string; error?: string }> {
     const res = await this.request('/confirm', {
       method: 'POST',
       headers: this.headers({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ token, home }),
     })
     const data = await res.json().catch(() => ({}))
-    return { ok: Boolean(data.ok), what: data.what, error: data.error }
+    return { ok: Boolean(data.ok), what: data.what, said: data.said ? String(data.said) : undefined, error: data.error }
   }
 
   /**

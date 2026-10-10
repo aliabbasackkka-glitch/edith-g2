@@ -2,7 +2,7 @@
     "package_id":  "com.example.edith",
     "edition":  "202601",
     "name":  "EDITH",
-    "version":  "2.0.0",
+    "version":  "3.0.0",
     "min_app_version":  "2.2.10",
     "min_sdk_version":  "0.0.15",
     "tagline":  "Talk to any AI, read the answer on your glasses",

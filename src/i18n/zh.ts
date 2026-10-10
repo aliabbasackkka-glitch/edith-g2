@@ -158,6 +158,7 @@ export const zh: Strings = {
   'voice.noneCanHear': '{name} 无法识别语音，你的其他 AI 也不行。点按“添加 AI”，添加免费的 Groq 或 Gemini 密钥，或者在这个屏幕上打字。',
 
   'note.stillAnswering': 'EDITH 还在回答。请稍等，或双击眼镜取消。',
+  'note.approveOnGlasses': '等待你在眼镜上轻触：{what}',
   'note.modelUnavailable': '这个密钥不能使用 {model}，所以 EDITH 使用 {chosen}。',
   'note.fastestModel': '当前最快的模型',
   'note.added': '已添加 {provider}。EDITH 使用 {model} 回答。你可以在设置中更改模型。',
@@ -536,4 +537,9 @@ export const zh: Strings = {
   'g.yourHistory': '本次对话之前的内容',
   'g.noHistory': '这次对话还没有问题。',
   'g.historyHint': '轻触看列表，双击关闭。',
+  'g.status.pc': '在电脑上处理...',
+  'g.status.linking': '正在连接电脑...',
+  'g.status.approve': '批准吗?',
+  'g.approveHint': '轻触批准，双击取消。',
+  'g.approveCancelled': '已取消。电脑上没有执行任何操作。',
 }

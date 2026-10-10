@@ -26,8 +26,9 @@ import site
 import subprocess
 import sys
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "3.0.0"
 DEFAULT_SERVER = "https://edith.starktech.workers.dev"
+DISCORD_URL = "https://discord.gg/pfzcx63zv"  # EDITH's community
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║  STARTUP — PYTHON PACKAGES                                               ║
@@ -141,7 +142,7 @@ from PyQt6.QtCore import (QBuffer, QByteArray, QEvent, QIODevice, QLineF, QLocal
 from PyQt6.QtGui import (QBrush, QColor, QFont, QFontMetrics, QGuiApplication, QImage, QKeySequence,  # noqa: E402
                          QPainter, QPen, QRadialGradient, QShortcut, QTextCharFormat, QTextCursor)
 from PyQt6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout,  # noqa: E402
-                             QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+                             QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
                              QPushButton, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget)
 
 _OS = platform.system()
@@ -554,7 +555,8 @@ class Config:
         return {"version": 1, "server": "", "device_id": new_device_id(), "chat_id": "", "chat_used": 0,
                 "provider": "", "keys": {}, "models": {}, "voice_provider": "", "voice_key": "",
                 "style": "normal", "language": lang, "voice_on": True,
-                "voice_name": VOICE_FOR_LANGUAGE.get(lang, "en-GB-SoniaNeural"), "voice_source": "edge", "global_ptt": False}
+                "voice_name": VOICE_FOR_LANGUAGE.get(lang, "en-GB-SoniaNeural"), "voice_source": "edge", "global_ptt": False,
+                "agent": {"on": False, "pc_id": "", "secret": "", "tasks": []}}
 
     def load(self):
         try:
@@ -589,6 +591,10 @@ class Config:
         if isinstance(raw.get("models"), dict):
             d["models"] = {str(p): [m for m in v if isinstance(m, dict) and m.get("id")]
                            for p, v in raw["models"].items() if isinstance(v, list)}
+        a = raw.get("agent")
+        if isinstance(a, dict):
+            d["agent"] = {"on": bool(a.get("on")), "pc_id": str(a.get("pc_id") or "")[:48], "secret": str(a.get("secret") or "")[:96],
+                          "tasks": [t for t in a.get("tasks") or [] if isinstance(t, dict) and t.get("id") and t.get("task") and t.get("time")][:20]}
         if d["voice_source"] not in VOICE_SOURCES:
             d["voice_source"] = "edge"
         if d["voice_source"] != "edge" and not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", d["voice_name"]):
@@ -848,6 +854,15 @@ class EdithApi:
             raise ApiError("server", f"Server error {r.status_code}")
         return clean_providers(self._json(r).get("providers"))
 
+    def agent(self, step, body):
+        """EDITH 3: the glasses' agent on this PC and the server (hello, next, done, forget)."""
+        r = self._request("POST", f"/agent/{step}", {"User-Agent": f"EDITH-PC/{APP_VERSION}"}, body)
+        d = self._json(r)
+        if r.status_code == 429 or r.status_code >= 500:
+            raise ApiError("server", str(d.get("error") or f"Server error {r.status_code}"))
+        d["_status"] = r.status_code
+        return d
+
     def check_key(self, provider, key, base=""):
         h = {"X-AI-Provider": provider, "X-AI-Key": key, "User-Agent": f"EDITH-PC/{APP_VERSION}"}
         if base:
@@ -998,6 +1013,436 @@ class EdithApi:
         if done is None:
             raise ApiError("offline", "The connection dropped before the answer finished.")
         return done
+
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  EDITH 3 (BETA) — THE GLASSES' AGENT ON THIS PC                          ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+# Linked with a 6-digit code said on the glasses, this PC does jobs the glasses ask for:
+# finding and reading files, building things in the workspace folder, opening links,
+# the clipboard, notes on screen and scheduled tasks. Nothing on this PC is opened to the
+# internet: the app asks EDITH's server for work. Anything outside the workspace, every
+# command and every program only runs once the wearer has tapped the glasses to approve.
+WORKSPACE = Path.home() / "EDITH Workspace"
+_SEARCH_DIRS = ("Desktop", "Documents", "Downloads", "Pictures", "Videos", "Music", "OneDrive")
+def _places():
+    """The folders the glasses can name in a word."""
+    home = Path.home()
+    return {"workspace": WORKSPACE, "desktop": home / "Desktop", "documents": home / "Documents",
+            "downloads": home / "Downloads", "pictures": home / "Pictures", "home": home}
+# Never read, listed or touched for the glasses: keys, password stores, browser profiles,
+# EDITH's own settings (its keys), and the system's app data.
+_PRIVATE_DIRS = {".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".edith", "appdata", "library",
+                 "keychains", ".password-store", "1password", "bitwarden", "keepass", "lastpass", ".git"}
+_PRIVATE_FILE = re.compile(r"(^\.env|^id_(rsa|ed25519|ecdsa)|\.(pem|key|kdbx|p12|pfx|keychain)$|wallet\.dat$|"
+                           r"credential|secret|password|passwd|token)", re.I)
+_SKIP_DIRS = {"node_modules", "__pycache__", ".venv", "venv", ".cache", "site-packages", "$recycle.bin"}
+_TEXT_EXT = {".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".xml", ".html", ".htm", ".css", ".js", ".ts",
+             ".tsx", ".jsx", ".py", ".java", ".c", ".cpp", ".h", ".cs", ".go", ".rs", ".rb", ".php", ".sh", ".ps1",
+             ".bat", ".yml", ".yaml", ".toml", ".ini", ".cfg", ".log", ".sql", ".srt", ".vtt", ".tex", ".rtf", ".mjs"}
+# Opening these runs a program, so it needs the wearer's tap like a command does.
+_RUNNABLE_EXT = {".exe", ".bat", ".cmd", ".com", ".ps1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".msi", ".msix",
+                 ".appx", ".lnk", ".scr", ".reg", ".jar", ".app", ".sh", ".command", ".py", ".pyw"}
+_KINDS = {"image": {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".bmp"}, "photo": {".jpg", ".jpeg", ".png", ".heic"},
+          "video": {".mp4", ".mov", ".mkv", ".avi", ".webm"}, "audio": {".mp3", ".wav", ".m4a", ".flac", ".ogg"},
+          "music": {".mp3", ".wav", ".m4a", ".flac"}, "document": {".pdf", ".docx", ".doc", ".txt", ".md", ".rtf", ".odt"},
+          "doc": {".pdf", ".docx", ".doc", ".txt", ".md"}, "spreadsheet": {".xlsx", ".xls", ".csv"},
+          "slides": {".pptx", ".ppt", ".key"}, "code": {".py", ".js", ".ts", ".html", ".css", ".java", ".cs", ".go", ".rs"}}
+MAX_READ_CHARS = 12000
+MAX_WRITE_BYTES = 1_000_000
+
+
+class AgentRefused(Exception):
+    """A job this PC won't do, with the reason the glasses are given."""
+
+
+def _inside(path, folder):
+    try:
+        path.relative_to(folder)
+        return True
+    except ValueError:
+        return False
+
+
+def agent_path(raw, *, must_exist=False):
+    """A path the glasses gave, made safe: in this user's folder and never somewhere private."""
+    text = str(raw or "").strip().strip('"')
+    if not text:
+        raise AgentRefused("No path given.")
+    place = _places().get(text.lower().rstrip("/\\"))
+    if place is not None:
+        p = place
+    else:
+        p = Path(os.path.expandvars(text)).expanduser()
+        if not p.is_absolute():
+            p = WORKSPACE / p
+    try:
+        p = p.resolve()
+    except OSError:
+        raise AgentRefused("That path isn't valid.") from None
+    home = Path.home().resolve()
+    if not _inside(p, home):
+        raise AgentRefused("EDITH only works inside your user folder on this PC.")
+    for part in p.relative_to(home).parts:
+        if part.lower() in _PRIVATE_DIRS:
+            raise AgentRefused("That folder is private (keys, passwords or app data), so EDITH leaves it alone.")
+    if p != home and _PRIVATE_FILE.search(p.name):
+        raise AgentRefused("That looks like a file with passwords or keys, so EDITH won't touch it.")
+    if must_exist and not p.exists():
+        raise AgentRefused(f"There's nothing at {p}.")
+    return p
+
+
+def _when(ts):
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+
+def agent_find(query, kind=""):
+    words = [w for w in re.split(r"[\s_\-.]+", str(query or "").lower()) if w]
+    if not words:
+        raise AgentRefused("Say what the file is called.")
+    k = str(kind or "").lower().strip(". ")
+    exts = _KINDS.get(k) or ({f".{k}"} if k else None)
+    roots = [WORKSPACE] + [Path.home() / d for d in _SEARCH_DIRS]
+    found, seen, started = [], 0, time.time()
+
+    def walk(folder, depth):
+        nonlocal seen
+        if depth > 7 or seen > 60000 or time.time() - started > 8:
+            return
+        try:
+            entries = list(os.scandir(folder))
+        except OSError:
+            return
+        for e in entries:
+            seen += 1
+            name = e.name
+            low = name.lower()
+            if low.startswith(".") or low in _PRIVATE_DIRS or low in _SKIP_DIRS:
+                continue
+            try:
+                if e.is_dir(follow_symlinks=False):
+                    walk(e.path, depth + 1)
+                    continue
+            except OSError:
+                continue
+            if _PRIVATE_FILE.search(name) or not all(w in low for w in words):
+                continue
+            if exts and Path(name).suffix.lower() not in exts:
+                continue
+            try:
+                st = e.stat()
+            except OSError:
+                continue
+            found.append((st.st_mtime, e.path, st.st_size))
+
+    for root in roots:
+        if root.exists():
+            walk(root, 0)
+    found.sort(reverse=True)
+    files = [{"path": p, "size_kb": round(size / 1024, 1), "modified": _when(mt)} for mt, p, size in found[:20]]
+    return {"ok": True, "query": query, "found": len(found), "files": files,
+            **({} if files else {"note": "Nothing by that name in Desktop, Documents, Downloads, Pictures, Videos, Music, OneDrive or the workspace."})}
+
+
+def agent_list(path):
+    p = agent_path(path, must_exist=True)
+    if not p.is_dir():
+        raise AgentRefused(f"{p} is a file, not a folder.")
+    rows = []
+    try:
+        entries = sorted(os.scandir(p), key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()))
+    except OSError as err:
+        raise AgentRefused(f"Can't open that folder ({err.strerror or err}).") from None
+    for e in entries:
+        if e.name.startswith(".") or e.name.lower() in _PRIVATE_DIRS or _PRIVATE_FILE.search(e.name):
+            continue
+        try:
+            st = e.stat()
+            is_dir = e.is_dir(follow_symlinks=False)
+        except OSError:
+            continue
+        rows.append({"name": e.name, "type": "folder" if is_dir else "file",
+                     **({} if is_dir else {"size_kb": round(st.st_size / 1024, 1)}), "modified": _when(st.st_mtime)})
+        if len(rows) >= 80:
+            break
+    return {"ok": True, "folder": str(p), "items": rows, "shown": len(rows)}
+
+
+def _docx_text(p):
+    import zipfile
+    with zipfile.ZipFile(p) as z:
+        xml = z.read("word/document.xml").decode("utf-8", "replace")
+    xml = re.sub(r"</w:p>", "\n", xml)
+    return re.sub(r"<[^>]+>", "", xml)
+
+
+def agent_read(path):
+    p = agent_path(path, must_exist=True)
+    if p.is_dir():
+        return agent_list(path)
+    if p.stat().st_size > 5_000_000:
+        raise AgentRefused("That file is over 5 MB; EDITH reads smaller ones.")
+    ext = p.suffix.lower()
+    if ext == ".docx":
+        text = _docx_text(p)
+    elif ext == ".pdf":
+        try:
+            from pypdf import PdfReader  # optional: pip install pypdf
+        except Exception:
+            raise AgentRefused("Reading PDFs needs the pypdf package on this PC (pip install pypdf).") from None
+        text = "\n".join((page.extract_text() or "") for page in PdfReader(str(p)).pages[:40])
+    elif ext in _TEXT_EXT or not ext:
+        text = p.read_bytes().decode("utf-8", "replace")
+    else:
+        raise AgentRefused(f"EDITH can't read {ext} files as text; it can open them on screen instead.")
+    text = text.replace("\r\n", "\n")
+    return {"ok": True, "path": str(p), "chars": len(text), "text": text[:MAX_READ_CHARS],
+            **({"truncated": True} if len(text) > MAX_READ_CHARS else {})}
+
+
+def agent_write(path, content, approved):
+    data = str(content or "").encode("utf-8")
+    if len(data) > MAX_WRITE_BYTES:
+        raise AgentRefused("That's over 1 MB; write it in smaller files.")
+    p = agent_path(path)
+    if not _inside(p, WORKSPACE.resolve()) and not approved:
+        return {"needs_approval": True, "what": f"Write {p.name} in {p.parent}"}
+    if p.exists() and p.is_dir():
+        raise AgentRefused(f"{p} is a folder.")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(data)
+    return {"ok": True, "path": str(p), "bytes": len(data), "note": "Saved. Use pc_open to show it."}
+
+
+def _open_with_system(target):
+    if sys.platform == "win32":
+        os.startfile(target)  # noqa: S606 - opens with the user's own default app
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", target])
+    else:
+        subprocess.Popen(["xdg-open", target])
+
+
+def agent_open(target, approved):
+    t = str(target or "").strip()
+    low = t.lower()
+    if low.startswith(("https://", "http://")):
+        webbrowser.open(t)
+        return {"ok": True, "opened": t}
+    if low.startswith("mailto:"):
+        _open_with_system(t)
+        return {"ok": True, "opened": "a drafted email", "note": "It's open in their mail app for them to check and send."}
+    p = agent_path(t, must_exist=True)
+    if p == WORKSPACE.resolve():
+        WORKSPACE.mkdir(parents=True, exist_ok=True)
+    if p.is_file() and p.suffix.lower() in _RUNNABLE_EXT and not approved:
+        return {"needs_approval": True, "what": f"Run {p.name}"}
+    _open_with_system(str(p))
+    return {"ok": True, "opened": str(p)}
+
+
+def agent_run(command, approved):
+    cmd = str(command or "").strip()
+    if not approved:
+        raise AgentRefused("Commands only run after the wearer approves them on the glasses.")
+    if not cmd:
+        raise AgentRefused("No command given.")
+    WORKSPACE.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        argv = ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd]
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    else:
+        argv = ["/bin/sh", "-c", cmd]
+        flags = 0
+    try:
+        done = subprocess.run(argv, cwd=str(WORKSPACE), capture_output=True, timeout=60, creationflags=flags)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "It was still running after a minute, so EDITH stopped waiting."}
+    out = (done.stdout.decode("utf-8", "replace") + done.stderr.decode("utf-8", "replace")).strip()
+    return {"ok": done.returncode == 0, "exit_code": done.returncode, "output": out[-4000:] or "(no output)"}
+
+
+def agent_status(name):
+    info = {"ok": True, "pc": name, "os": f"{platform.system()} {platform.release()}", "time": local_time(),
+            "workspace": str(WORKSPACE)}
+    try:
+        b = psutil.sensors_battery()
+        if b is not None:
+            info["battery"] = f"{round(b.percent)}%{' charging' if b.power_plugged else ''}"
+    except Exception:
+        pass
+    try:
+        info["disk_free_gb"] = round(shutil.disk_usage(str(Path.home())).free / 1e9, 1)
+    except Exception:
+        pass
+    return info
+
+
+class PcAgent:
+    """Links this PC to the glasses and does the jobs they send (on a thread of its own)."""
+
+    def __init__(self, win):
+        self.win = win
+        self.cfg = win.cfg
+        self.linked = False
+        self.code = ""
+        self.problem = ""
+        self._stop = threading.Event()
+        self._thread = None
+
+    # ── who this PC is ──
+    def _ident(self):
+        a = self.cfg.data["agent"]
+        if not a.get("pc_id") or not a.get("secret"):
+            a["pc_id"] = secrets.token_hex(12)
+            a["secret"] = secrets.token_urlsafe(36)
+            self.cfg.save()
+        return {"pcId": a["pc_id"], "secret": a["secret"], "name": platform.node()[:40] or "PC",
+                "os": f"{platform.system()} {platform.release()}"[:40]}
+
+    def running(self):
+        return self._thread is not None and self._thread.is_alive()
+
+    def start(self):
+        if self.running():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, name="edith-agent", daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+
+    def forget(self):
+        """Unlinks this PC from the glasses (the server forgets it) and makes it a new one."""
+        self.stop()
+        try:
+            self.win.api.agent("forget", self._ident())
+        except Exception:
+            pass
+        a = self.cfg.data["agent"]
+        a["pc_id"] = ""
+        a["secret"] = ""
+        self.cfg.save()
+        self.linked = False
+        self.code = ""
+
+    def _changed(self):
+        self.win.ui(self.win._agent_refresh)
+
+    # ── the loop: say hello, then ask for work, over and over ──
+    def _loop(self):
+        need_hello, code_until, wait = True, 0.0, 2.0
+        while not self._stop.is_set():
+            try:
+                ident = self._ident()
+                if need_hello or (not self.linked and time.time() > code_until):
+                    hello = self.win.api.agent("hello", ident)
+                    if hello.get("_status") == 403:
+                        a = self.cfg.data["agent"]
+                        a["pc_id"], a["secret"] = "", ""
+                        self.cfg.save()
+                        continue
+                    self.linked = bool(hello.get("linked"))
+                    self.code = "" if self.linked else str(hello.get("code") or "")
+                    code_until = time.time() + max(30, float(hello.get("expiresIn") or 600000) / 1000 - 20)
+                    need_hello = False
+                    self.problem = ""
+                    self._changed()
+                got = self.win.api.agent("next", ident)
+                if got.get("_status") in (403, 404):
+                    self.linked, need_hello = False, True
+                    self._changed()
+                    continue
+                was = self.linked
+                self.linked = bool(got.get("linked"))
+                if was != self.linked:
+                    if self.linked:
+                        self.code = ""
+                        self._say("SYS: ⌬ Your glasses are linked. Ask them to work on this PC.")
+                    else:
+                        need_hello = True
+                    self._changed()
+                job = got.get("job")
+                if job:
+                    self._do(ident, job)
+                wait = 2.0
+                if self.problem:
+                    self.problem = ""
+                    self._changed()
+            except ApiError as err:
+                self.problem = str(err)
+                self._changed()
+                self._stop.wait(wait)
+                wait = min(30.0, wait * 2)
+            except Exception:
+                traceback.print_exc()
+                self._stop.wait(wait)
+                wait = min(30.0, wait * 2)
+
+    def _say(self, text):
+        try:
+            self.win._log.append_log(text)
+        except Exception:
+            pass  # the activity log is a nicety: the job is answered either way
+
+    def _do(self, ident, job):
+        tool, args, approved = str(job.get("tool") or ""), job.get("args") or {}, bool(job.get("approved"))
+        if not isinstance(args, dict):
+            args = {}
+        self._say(f"SYS: ⌬ Glasses → {self._describe(tool, args)}{'  (approved)' if approved else ''}")
+        try:
+            result = self._run(tool, args, approved)
+        except AgentRefused as why:
+            result = {"error": str(why)}
+        except Exception as err:
+            result = {"error": f"That didn't work on the PC: {err}"}
+        if result.get("error"):
+            self._say(f"SYS: ⌬ {result['error']}")
+        try:
+            self.win.api.agent("done", {**ident, "jobId": job.get("id"), "result": result})
+        except Exception:
+            pass
+
+    @staticmethod
+    def _describe(tool, args):
+        what = {"pc_status": "checking this PC", "pc_find_files": f"finding \"{args.get('query', '')}\"",
+                "pc_list_folder": f"looking in {args.get('path', '')}", "pc_read_file": f"reading {args.get('path', '')}",
+                "pc_write_file": f"writing {args.get('path', '')}", "pc_open": f"opening {args.get('target', '')}",
+                "pc_run_command": f"running: {args.get('command', '')}", "pc_clipboard": "using the clipboard",
+                "pc_notify": "a note for you", "pc_schedule_task": f"scheduling \"{args.get('task', '')}\"",
+                "pc_tasks": "the scheduled tasks"}.get(tool, tool)
+        return what[:160]
+
+    def _run(self, tool, args, approved):
+        if tool == "pc_status":
+            return agent_status(self._ident()["name"])
+        if tool == "pc_find_files":
+            return agent_find(args.get("query"), args.get("type", ""))
+        if tool == "pc_list_folder":
+            return agent_list(args.get("path"))
+        if tool == "pc_read_file":
+            return agent_read(args.get("path"))
+        if tool == "pc_write_file":
+            return agent_write(args.get("path"), args.get("content"), approved)
+        if tool == "pc_open":
+            return agent_open(args.get("target"), approved)
+        if tool == "pc_run_command":
+            return agent_run(args.get("command"), approved)
+        if tool == "pc_clipboard":
+            return self.win.on_ui(lambda: self.win._agent_clipboard(args.get("text")))
+        if tool == "pc_notify":
+            msg = str(args.get("message") or "").strip()[:500]
+            if not msg:
+                raise AgentRefused("No note given.")
+            self.win.ui(lambda: self.win._agent_note(msg))
+            return {"ok": True, "shown": msg}
+        if tool == "pc_schedule_task":
+            return self.win.on_ui(lambda: self.win._agent_schedule(args))
+        if tool == "pc_tasks":
+            return self.win.on_ui(lambda: self.win._agent_tasks(args.get("cancel")))
+        raise AgentRefused(f"This PC doesn't know how to {tool}. Update EDITH's PC app.")
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
@@ -2127,6 +2572,7 @@ class MainWindow(QMainWindow):
         self._photo=None; self._player=None; self._audio_out=None; self._voice_path=None; self._speak_token=0
         self._voice_installing=False; self._voice_install_failed=False; self._voice_warned=False
         self._server_ok=None; self._talk_key=None; self._probing=False; self._metrics=_SysMetrics()
+        self.agent=PcAgent(self); self._tasks_running=set()
         central=QWidget(); central.setStyleSheet(f"background:{C.BG};"); self.setCentralWidget(central)
         root=QVBoxLayout(central); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
         root.addWidget(self._build_header())
@@ -2143,6 +2589,7 @@ class MainWindow(QMainWindow):
         self._clock_tmr=QTimer(self); self._clock_tmr.timeout.connect(self._tick_clock); self._clock_tmr.start(1000); self._tick_clock()
         self._metric_tmr=QTimer(self); self._metric_tmr.timeout.connect(self._update_metrics); self._metric_tmr.start(2000); self._update_metrics()
         self._rec_tmr=QTimer(self); self._rec_tmr.timeout.connect(self._rec_tick)
+        self._task_tmr=QTimer(self); self._task_tmr.timeout.connect(self._agent_tick); self._task_tmr.start(30000)
         self._log_sig.connect(self._on_log); self._state_sig.connect(self._apply_state); self._ui_sig.connect(self._run_ui)
         QShortcut(QKeySequence("F4"),self).activated.connect(self._toggle_voice)
         QShortcut(QKeySequence("F11"),self).activated.connect(self._toggle_fs)
@@ -2156,6 +2603,17 @@ class MainWindow(QMainWindow):
     def ui(self,fn):
         """Runs fn on the UI thread: every worker thread reaches the window through this signal."""
         self._ui_sig.emit(fn)
+    def on_ui(self,fn,timeout=10):
+        """Runs fn on the UI thread from a worker thread and waits for what it returns."""
+        box={}; done=threading.Event()
+        def run():
+            try: box["v"]=fn()
+            except Exception as err: box["e"]=err
+            finally: done.set()
+        self.ui(run)
+        if not done.wait(timeout): raise AgentRefused("EDITH's PC app was busy. Try again.")
+        if "e" in box: raise box["e"]
+        return box.get("v")
     def _run_ui(self,fn):
         try: fn()
         except RuntimeError: pass  # a dialog closed while its request was out
@@ -2254,7 +2712,18 @@ class MainWindow(QMainWindow):
         ai.clicked.connect(lambda: (self._close_drawers(),self._show_setup(first_run=False))); lay.addWidget(ai)
         note=_label("Pick the AI that answers, paste its key, choose the voice, the answer length and the language. Keys stay on this PC.",7,False,C.TEXT_DIM,Qt.AlignmentFlag.AlignLeft)
         note.setWordWrap(True); lay.addWidget(note)
+        lay.addWidget(_sep()); lay.addWidget(_label("GLASSES AGENT  ·  BETA",7,True,C.TEXT_DIM,Qt.AlignmentFlag.AlignLeft))
+        self._agent_label=QLabel(""); self._agent_label.setTextFormat(Qt.TextFormat.PlainText); self._agent_label.setWordWrap(True)
+        self._agent_label.setFont(QFont("Courier New",8)); self._agent_label.setStyleSheet(f"color:{C.TEXT_MED};background:transparent;"); lay.addWidget(self._agent_label)
+        self._agent_code=QLabel(""); self._agent_code.setAlignment(Qt.AlignmentFlag.AlignCenter); self._agent_code.setFont(QFont("Courier New",24,QFont.Weight.Bold))
+        self._agent_code.setStyleSheet(f"color:{C.PRI};background:{C.PANEL2};border:1px solid {C.BORDER_B};border-radius:4px;padding:6px;"); self._agent_code.hide(); lay.addWidget(self._agent_code)
+        self._agent_btn=self._strip("⌬  LINK GLASSES",36,9); self._agent_btn.clicked.connect(self._agent_toggle); lay.addWidget(self._agent_btn)
+        row=QHBoxLayout(); row.setSpacing(6)
+        ws=self._strip("▤  WORKSPACE",28); ws.setStyleSheet(_line_button_style()); ws.clicked.connect(self._agent_workspace); row.addWidget(ws)
+        self._agent_unlink=self._strip("✕  UNLINK",28); self._agent_unlink.setStyleSheet(f"QPushButton{{background:transparent;color:{C.RED};border:1px solid {C.RED};border-radius:3px;}}")
+        self._agent_unlink.clicked.connect(self._agent_forget); row.addWidget(self._agent_unlink); lay.addLayout(row)
         self._setup_drawer=f
+        self._agent_refresh()
         f,lay=self._drawer_frame("CONTROLS")
         self._voice_btn=self._strip("🔊  VOICE REPLIES ON  [F4]",30); self._voice_btn.clicked.connect(self._toggle_voice); lay.addWidget(self._voice_btn)
         fs_btn=self._strip("⛶  FULLSCREEN  [F11]",30)
@@ -2267,6 +2736,8 @@ class MainWindow(QMainWindow):
         new.clicked.connect(lambda: (self._close_drawers(),self._new_chat())); lay.addWidget(new)
         self._shot_btn=self._strip("▣  ASK ABOUT MY SCREEN",30); self._shot_btn.setStyleSheet(_dashed_style())
         self._shot_btn.clicked.connect(lambda: (self._close_drawers(),self._screenshot_screen())); lay.addWidget(self._shot_btn)
+        disc=self._strip("◈  EDITH DISCORD",28); disc.setStyleSheet(_line_button_style())
+        disc.clicked.connect(lambda: (self._close_drawers(),webbrowser.open(DISCORD_URL))); lay.addWidget(disc)
         self._controls_drawer=f
     def _toggle_drawer(self,which):
         d=self._setup_drawer if which=="setup" else self._controls_drawer
@@ -2282,6 +2753,100 @@ class MainWindow(QMainWindow):
             if b is not None: b.setChecked(False)
     def _drawer_open(self):
         return any(d is not None and d.isVisible() for d in (getattr(self,"_setup_drawer",None),getattr(self,"_controls_drawer",None)))
+
+    # ── EDITH 3: the glasses' agent on this PC ──
+    def _agent_refresh(self):
+        a=self.cfg.data["agent"]; on=bool(a.get("on")); ag=self.agent
+        if not on:
+            self._agent_label.setText("Let your glasses use this PC: find and read files, build things in the workspace, open links, and run what you approve with a tap."
+                                      if not a.get("pc_id") else "Paused. Your glasses can't use this PC until you turn it back on.")
+            self._agent_btn.setText("⌬  LINK GLASSES" if not a.get("pc_id") else "▶  TURN ON AGENT"); self._agent_code.hide()
+        elif ag.linked:
+            self._agent_label.setText("LINKED. Your glasses can use this PC. Anything outside the workspace, and every command, waits for a tap on the glasses."
+                                      +(f"\n⚠ {ag.problem}" if ag.problem else "")); self._agent_btn.setText("❚❚  PAUSE AGENT"); self._agent_code.hide()
+        elif ag.code:
+            pretty=f"{ag.code[:3]} {ag.code[3:]}"
+            self._agent_label.setText(f"On your glasses, say:  “Link my PC, code {pretty}”"); self._agent_code.setText(pretty)
+            self._agent_code.show(); self._agent_btn.setText("■  STOP")
+        else:
+            self._agent_label.setText("Connecting to EDITH's server…"+(f"\n⚠ {ag.problem}" if ag.problem else "")); self._agent_btn.setText("■  STOP"); self._agent_code.hide()
+        self._agent_btn.setStyleSheet(f"QPushButton{{background:{C.PRI if not on else 'transparent'};color:{C.BG if not on else C.PRI};border:1px solid {C.PRI};border-radius:3px;}}")
+        self._agent_unlink.setVisible(bool(a.get("pc_id")))
+        if getattr(self,"_setup_drawer",None) is not None and self._setup_drawer.isVisible(): self._setup_drawer.adjustSize()
+    def _agent_toggle(self):
+        a=self.cfg.data["agent"]; a["on"]=not a.get("on"); self.cfg.save()
+        if a["on"]: self.agent.start(); self._log.append_log("SYS: ⌬ Glasses agent on. Linking…")
+        else: self.agent.stop(); self._log.append_log("SYS: ⌬ Glasses agent paused.")
+        self._agent_refresh()
+    def _agent_forget(self):
+        if QMessageBox.question(self,"Unlink glasses","Unlink your glasses from this PC? You can link them again any time.")!=QMessageBox.StandardButton.Yes: return
+        a=self.cfg.data["agent"]; a["on"]=False; self.cfg.save()
+        threading.Thread(target=lambda: (self.agent.forget(),self.ui(self._agent_refresh)),daemon=True).start()
+        self._log.append_log("SYS: ⌬ Glasses unlinked from this PC.")
+    def _agent_workspace(self):
+        WORKSPACE.mkdir(parents=True,exist_ok=True)
+        try: _open_with_system(str(WORKSPACE))
+        except Exception: pass
+    def _agent_clipboard(self,text):
+        cb=QGuiApplication.clipboard()
+        if text:
+            cb.setText(str(text)[:20000]); self._log.append_log("SYS: ⌬ Your glasses put text on the clipboard.")
+            return {"ok":True,"copied_chars":len(str(text)[:20000])}
+        got=cb.text() or ""
+        return {"ok":True,"text":got[:4000],**({"truncated":True} if len(got)>4000 else {}),**({} if got else {"note":"The clipboard is empty."})}
+    def _agent_note(self,msg):
+        self._log.append_log(f"SYS: ⌬ From your glasses: {msg}")
+        if self.isMinimized(): self.showNormal()
+        self.raise_(); self.activateWindow(); QApplication.alert(self)
+        box=QMessageBox(self); box.setWindowTitle("E.D.I.T.H"); box.setText(msg); box.setModal(False); box.show()
+    def _agent_schedule(self,args):
+        task=re.sub(r"\s+"," ",str(args.get("task") or "")).strip()[:500]
+        m=re.fullmatch(r"\s*(\d{1,2})[:.](\d{2})\s*",str(args.get("time") or ""))
+        if not task: raise AgentRefused("Say what the task is.")
+        if not m or int(m.group(1))>23 or int(m.group(2))>59: raise AgentRefused("Give the time as HH:MM on a 24-hour clock.")
+        at=f"{int(m.group(1)):02d}:{m.group(2)}"; repeat=args.get("repeat") if args.get("repeat") in ("once","daily","weekdays") else "daily"
+        tasks=self.cfg.data["agent"]["tasks"]
+        if len(tasks)>=20: raise AgentRefused("There are already 20 tasks; cancel one first.")
+        # A daily time that has already gone by today starts tomorrow, not straight away.
+        passed=at<=datetime.now().strftime("%H:%M") and repeat!="once"
+        t={"id":secrets.token_hex(3),"task":task,"time":at,"repeat":repeat,"last":datetime.now().strftime("%Y-%m-%d") if passed else ""}
+        tasks.append(t); self.cfg.save(); self._log.append_log(f"SYS: ⌬ Task scheduled {at} ({repeat}): {task}")
+        return {"ok":True,**t,"note":"It runs on this PC while EDITH's PC app is open, and saves a report in EDITH Workspace/Reports."}
+    def _agent_tasks(self,cancel):
+        tasks=self.cfg.data["agent"]["tasks"]
+        if cancel:
+            keep=[t for t in tasks if t["id"]!=str(cancel).strip()]
+            if len(keep)==len(tasks): raise AgentRefused(f"No task with the id {cancel}.")
+            self.cfg.data["agent"]["tasks"]=keep; self.cfg.save(); return {"ok":True,"cancelled":cancel,"tasks":keep}
+        return {"ok":True,"tasks":tasks,**({} if tasks else {"note":"Nothing is scheduled."})}
+    def _agent_tick(self):
+        """Every 30 seconds: runs any scheduled task whose time has come today."""
+        now=datetime.now(); today=now.strftime("%Y-%m-%d"); hm=now.strftime("%H:%M"); changed=False
+        for t in list(self.cfg.data["agent"]["tasks"]):
+            if t["id"] in self._tasks_running or t.get("last")==today or t["time"]>hm: continue
+            if t.get("repeat")=="weekdays" and now.weekday()>=5: continue
+            if not self.cfg.has_access(): return
+            t["last"]=today; changed=True; self._tasks_running.add(t["id"])
+            if t.get("repeat")=="once": self.cfg.data["agent"]["tasks"]=[x for x in self.cfg.data["agent"]["tasks"] if x["id"]!=t["id"]]
+            threading.Thread(target=self._agent_run_task,args=(dict(t),),daemon=True).start()
+        if changed: self.cfg.save()
+    def _agent_run_task(self,t):
+        self._log.append_log(f"SYS: ⌬ Scheduled task: {t['task']}")
+        try:
+            prompt=(f"Scheduled task, set from my glasses: {t['task']}\nDo it now and write the result as a short report: a title line, "
+                    f"then the key points. Today is {datetime.now().strftime('%A %d %B %Y')}.")
+            opts={"style":"normal","instructions":"","specialist":"general","translateTo":"","can":[],"surface":"desktop"}
+            reply=self.api.chat({"text":prompt},[],opts)
+            folder=WORKSPACE/"Reports"; folder.mkdir(parents=True,exist_ok=True)
+            slug=re.sub(r"[^A-Za-z0-9]+"," ",t["task"]).strip()[:40] or "report"
+            path=folder/f"{datetime.now().strftime('%Y-%m-%d %H%M')} {slug}.md"
+            path.write_text(f"# {t['task']}\n\n{reply['reply']}\n",encoding="utf-8")
+            self._log.append_log(f"SYS: ⌬ Task done: saved {path.name} in EDITH Workspace, Reports.")
+            self.ui(lambda: self._agent_note(f"Your scheduled task is done: {t['task']}\nSaved as {path.name} in EDITH Workspace, Reports."))
+        except Exception as err:
+            self._log.append_log(f"SYS: ⌬ The scheduled task didn't work: {err}")
+        finally:
+            self._tasks_running.discard(t["id"])
 
     def _tick_clock(self):
         now=datetime.now()
@@ -2409,6 +2974,7 @@ class MainWindow(QMainWindow):
 
     # ── boot ──
     def _boot(self):
+        if self.cfg.data["agent"].get("on") and not self.demo: self.agent.start()
         self._log.append_log("SYS: E.D.I.T.H online.")
         if self.cfg.has_access():
             self._log.append_log(f"SYS: AI link: {self._link_text()}")
@@ -3138,6 +3704,34 @@ def selftest():
             except ApiError as e: expect(e.kind=="setup","speak bad key kind "+e.kind)
         finally:
             srv.shutdown()
+    def t_agent():
+        """EDITH 3: the glasses' agent stays in the user's folder, away from keys, and asks before acting."""
+        global WORKSPACE
+        old_ws=WORKSPACE; home=Path(tempfile.mkdtemp(prefix="edith_agent_")); saved={k:os.environ.get(k) for k in ("HOME","USERPROFILE")}
+        os.environ["HOME"]=os.environ["USERPROFILE"]=str(home); WORKSPACE=home/"EDITH Workspace"
+        try:
+            (home/"Documents").mkdir(); (home/"Documents"/"Trip plan.txt").write_text("Fly to Dubai on Friday",encoding="utf-8")
+            (home/".ssh").mkdir(); (home/".ssh"/"id_rsa").write_text("PRIVATE",encoding="utf-8")
+            (home/"Documents"/"passwords.txt").write_text("x",encoding="utf-8")
+            r=agent_write("site/index.html","<h1>hi</h1>",False); expect(r.get("ok") and Path(r["path"]).read_text()=="<h1>hi</h1>","workspace write")
+            r=agent_write(str(home/"Documents"/"new.txt"),"x",False); expect(r.get("needs_approval"),"write outside the workspace must ask")
+            r=agent_write(str(home/"Documents"/"new.txt"),"x",True); expect(r.get("ok"),"approved write")
+            found=agent_find("trip"); expect(found["files"] and found["files"][0]["path"].endswith("Trip plan.txt"),"find")
+            expect(not agent_find("passwords")["files"],"a passwords file was found")
+            expect("Dubai" in agent_read(found["files"][0]["path"])["text"],"read")
+            for bad in (str(home/".ssh"/"id_rsa"),str(home/"Documents"/"passwords.txt"),str(Path(home.anchor)/"Windows"/"win.ini"),"../../etc/passwd"):
+                with contextlib.suppress(AgentRefused): agent_read(bad); raise AssertionError(f"read {bad}")
+            with contextlib.suppress(AgentRefused): agent_run("echo hi",False); raise AssertionError("ran a command without approval")
+            (WORKSPACE/"site"/"run.bat").write_text("x",encoding="utf-8")
+            expect(agent_open(str(WORKSPACE/"site"/"run.bat"),False).get("needs_approval"),"opening a program must ask")
+            r=agent_run("echo edith-ok",True); expect(r.get("ok") and "edith-ok" in r.get("output",""),f"approved command: {r}")
+            expect(agent_list("workspace")["items"],"list the workspace")
+        finally:
+            WORKSPACE=old_ws
+            for k,v in saved.items():
+                if v is None: os.environ.pop(k,None)
+                else: os.environ[k]=v
+            shutil.rmtree(home,ignore_errors=True)
     def t_config():
         tmp=tempfile.mkdtemp(prefix="edith_selftest_"); old={k:os.environ.get(k) for k in ("HOME","USERPROFILE")}
         try:
@@ -3179,6 +3773,7 @@ def selftest():
     check("wav encoding",t_wav); check("ndjson parsing (split lines and characters)",t_ndjson); check("error mapping",t_failure_map)
     check("ids, local time, server address",t_ids_time); check("photo shrinking",t_image); check("text helpers",t_text); check("voices: keys, pieces, catalog",t_voices)
     check("mock server round trip",t_mock_round_trip); check("config round trip in a temp home",t_config)
+    check("glasses agent: safe paths, approvals",t_agent)
     failed=[r for r in results if not r[1]]
     print(f"\n{len(results)-len(failed)}/{len(results)} passed"); return 1 if failed else 0
 

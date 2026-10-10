@@ -157,6 +157,7 @@ export const es: Strings = {
   'voice.noneCanHear': '{name} no entiende la voz, y tus otras IA tampoco. Toca Añadir una IA y añade una clave gratis de Groq o Gemini, o escribe en esta pantalla.',
 
   'note.stillAnswering': 'EDITH sigue respondiendo. Espera un momento o toca dos veces las gafas para cancelar.',
+  'note.approveOnGlasses': 'Esperando tu toque en las gafas: {what}',
   'note.modelUnavailable': '{model} no está disponible con esta clave, así que EDITH usa {chosen}.',
   'note.fastestModel': 'el modelo disponible más rápido',
   'note.added': 'Se añadió {provider}. EDITH responde con {model}. Puedes cambiar el modelo en Ajustes.',
@@ -535,4 +536,9 @@ export const es: Strings = {
   'g.yourHistory': 'Antes en esta conversacion',
   'g.noHistory': 'Aqui todavia no has preguntado nada.',
   'g.historyHint': 'Toca para la lista. Doble toque cierra.',
+  'g.status.pc': 'EN TU PC...',
+  'g.status.linking': 'VINCULANDO TU PC...',
+  'g.status.approve': 'APROBAR?',
+  'g.approveHint': 'Toca para aprobar. Doble toque cancela.',
+  'g.approveCancelled': 'Cancelado. No se hizo nada en tu PC.',
 }

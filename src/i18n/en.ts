@@ -168,6 +168,7 @@ export const en = {
 
   // notes in the conversation
   'note.stillAnswering': 'EDITH is still answering. Wait a moment, or double-tap the glasses to cancel.',
+  'note.approveOnGlasses': 'Waiting for your tap on the glasses: {what}',
   'note.modelUnavailable': "{model} isn't available with this key, so EDITH uses {chosen}.",
   'note.fastestModel': 'the fastest available model',
   'note.added': '{provider} added. EDITH answers with {model}. You can change the model in Settings.',
@@ -555,6 +556,11 @@ export const en = {
   'g.yourHistory': 'Earlier in this chat',
   'g.noHistory': 'Nothing asked in this chat yet.',
   'g.historyHint': 'Tap for the list. Double-tap to close.',
+  'g.status.pc': 'ON YOUR PC...',
+  'g.status.linking': 'LINKING YOUR PC...',
+  'g.status.approve': 'APPROVE?',
+  'g.approveHint': 'Tap to approve. Double-tap to cancel.',
+  'g.approveCancelled': 'Cancelled. Nothing ran on your PC.',
 }
 
 export type Key = keyof typeof en

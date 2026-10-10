@@ -27,6 +27,11 @@
  *          POST   /api/calendar     { url } -> the iCal file at one of the wearer's calendar links
  *          GET    /api/glance       ?at=lat,lon -> the weather for the glasses dashboard
  *          POST   /api/confirm      { token, home }: carries out what the wearer tapped to confirm
+ *   EDITH 3 (beta), the PC app as the glasses' agent (lib/agent.mjs):
+ *          POST   /api/agent/hello  { pcId, secret, name, os } -> a code to link, or { linked }
+ *          POST   /api/agent/next   { pcId, secret }  -> the next job for this PC (held ~20 s)
+ *          POST   /api/agent/done   { pcId, secret, jobId, result }
+ *          POST   /api/agent/forget { pcId, secret }  unlinks and forgets this PC
  *
  * EDITH 1.5.0 and later send a chatId (saved chats, lib/chats.mjs) and answer preferences
  * (style, instructions, specialist, translateTo; lib/prefs.mjs) with each question.
@@ -88,6 +93,7 @@ import {
 import { appendToChat, cleanChatId, deleteAllChats, deleteChat, getChat, listChats, remember, searchChats, setChatTitle } from "./lib/chats.mjs";
 import { connectCallback, connectRedirect, pollConnect, startConnect } from "./lib/connect.mjs";
 import { cleanActions, cleanHome, confirmHome, publicHttps, runAction } from "./lib/home.mjs";
+import { confirmPc, linkedPc, pcDone, pcForget, pcHello, pcNext } from "./lib/agent.mjs";
 import { cityAt, readLocation } from "./lib/places.mjs";
 import { ProviderError } from "./lib/http.mjs";
 import { LANGUAGES, languageOf } from "./lib/languages.mjs";
@@ -162,10 +168,13 @@ const sessionEnded = () =>
 
 // Finish well inside the strictest host limit (Netlify: 60 seconds), with a clear message instead of a cut-off.
 const DEADLINE_MS = 50_000;
+// A job on the wearer's PC can take several steps on the computer (EDITH 3).
+const PC_DEADLINE_MS = 120_000;
 // What the glasses heard, sent with a question about it: roughly an hour of talking (1.8.0).
 const MAX_HEARD = 24_000;
 const MAX_IMAGE_B64 = 1_800_000; // about 1.3 MB of JPEG: plenty for a 1024 px photo
 const MAX_TURNS = 6;
+const MAX_PC_TURNS = 12;
 const HOUR_MS = 60 * 60 * 1000;
 
 const NEEDS_KEY = { error: "EDITH needs an AI key. Add one in EDITH's settings on your phone.", needsKey: true, kind: "key" };
@@ -299,7 +308,9 @@ async function converse({ chat, body, uk, userText, image, memories, history, em
   const flags = { memoryChanged: false, timers: [], cancelTimers: false, confirm: null, list: null, pick: null };
   const toolsUsed = [];
   let reply = "";
-  for (let turn = 0; turn < MAX_TURNS; turn++) {
+  // A job on the PC takes several steps (write the page, then open it), so it gets more.
+  const turns = world.can.pc ? MAX_PC_TURNS : MAX_TURNS;
+  for (let turn = 0; turn < turns; turn++) {
     emit({ type: "status", stage: "thinking" });
     let streamedText = false;
     const out = await convo.next({
@@ -409,7 +420,7 @@ async function titleChat({ access, uk, chatId, language }) {
 }
 
 /** Runs a chat job and streams its events as NDJSON lines. */
-function streamed(job, access, requestSignal) {
+function streamed(job, access, requestSignal, deadlineMs = DEADLINE_MS) {
   const encoder = new TextEncoder();
   const abort = new AbortController();
   requestSignal?.addEventListener?.("abort", () => abort.abort(), { once: true });
@@ -423,7 +434,7 @@ function streamed(job, access, requestSignal) {
       };
       // Pings keep proxies from closing a quiet connection during slow tool calls.
       const ping = setInterval(() => emit({ type: "ping" }), 5000);
-      const deadline = setTimeout(() => abort.abort(), DEADLINE_MS);
+      const deadline = setTimeout(() => abort.abort(), deadlineMs);
       try {
         emit({ type: "done", ...(await job(emit, abort.signal)) });
       } catch (err) {
@@ -496,6 +507,12 @@ async function handleChat(req, body, uk, device, background) {
   const prefs = answerPrefs(body);
   const chatId = cleanChatId(body.chatId);
   const world = worldFrom(req, body, chatId, surfaceOf(body));
+  if (world.surface === "glasses") {
+    // EDITH 3: the glasses can link the wearer's PC, and use it once linked.
+    const pc = await linkedPc(uk).catch(() => null);
+    world.can.pcLinkable = true;
+    world.can.pc = pc ? pc.name || "PC" : false;
+  }
   const job = async (emit, signal) => {
     // Flagged since they last asked something? They hear about it with this answer, once
     // (1.8.0). Read alongside the answer so it never holds the answer up.
@@ -522,10 +539,11 @@ async function handleChat(req, body, uk, device, background) {
     }
     return result;
   };
-  if ((req.headers.get("accept") || "").includes("application/x-ndjson")) return streamed(job, access, req.signal);
+  const deadlineMs = world.can.pc ? PC_DEADLINE_MS : DEADLINE_MS;
+  if ((req.headers.get("accept") || "").includes("application/x-ndjson")) return streamed(job, access, req.signal, deadlineMs);
 
   const abort = new AbortController();
-  const deadline = setTimeout(() => abort.abort(), DEADLINE_MS);
+  const deadline = setTimeout(() => abort.abort(), deadlineMs);
   try {
     return json(await job(() => {}, abort.signal));
   } catch (err) {
@@ -638,9 +656,25 @@ async function handleGlance(req) {
   return json(glance);
 }
 
+/** EDITH 3 (beta): EDITH's PC app links itself, asks for work and hands back what it did. */
+async function handleAgent(req, step, body) {
+  if (step === "hello") {
+    if (!(await allowRate(`rate/agent/${clientNetwork(req)}`, 120, HOUR_MS))) return json({ error: "Too many tries. Wait a few minutes." }, 429);
+    const out = await pcHello(body);
+    return json(out.body, out.status);
+  }
+  const run = { next: pcNext, done: pcDone, forget: pcForget }[step];
+  if (!run) return json({ error: "not found" }, 404);
+  const out = await run(body);
+  return json(out.body, out.status);
+}
+
 /** The wearer tapped the glasses to confirm something that unlocks or opens a way into their home. */
 async function handleHomeConfirm(req, body, uk) {
   if (uk === "anon") return json({ error: "Missing X-Device-Id.", kind: "other" }, 400);
+  // EDITH 3: an approved job for the wearer's PC, or else a smart-home confirmation.
+  const pc = await confirmPc(uk, body.token);
+  if (pc) return json(pc, pc.ok ? 200 : 400);
   const out = await confirmHome(cleanHome(body.home), uk, body.token);
   return json(out, out.ok ? 200 : 400);
 }
@@ -919,6 +953,8 @@ export async function handle(req, ctx) {
       }
       return json({ lists: await getLists(uk) });
     }
+    const agentAt = parts.indexOf("agent");
+    if (agentAt >= 0 && req.method === "POST") return await handleAgent(req, parts[agentAt + 1] || "", body);
     if (route === "chat" && req.method === "POST") return await handleChat(req, body, uk, device, background);
     if (route === "speak" && req.method === "POST") return await handleSpeak(req, body);
     if (route === "check-key" && req.method === "POST") {

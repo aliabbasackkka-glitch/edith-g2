@@ -92,6 +92,19 @@ const TOOL_STATUS: Record<string, GlassesKey> = {
   news_headlines: 'g.status.news',
   daily_briefing: 'g.status.briefing',
   recall_conversations: 'g.status.remembering',
+  // EDITH 3: the wearer's own PC
+  link_pc: 'g.status.linking',
+  pc_status: 'g.status.pc',
+  pc_find_files: 'g.status.pc',
+  pc_list_folder: 'g.status.pc',
+  pc_read_file: 'g.status.pc',
+  pc_write_file: 'g.status.pc',
+  pc_open: 'g.status.pc',
+  pc_run_command: 'g.status.pc',
+  pc_clipboard: 'g.status.pc',
+  pc_notify: 'g.status.pc',
+  pc_schedule_task: 'g.status.pc',
+  pc_tasks: 'g.status.pc',
 }
 
 // The same ids as 1.x, so a menu tap means the same thing in every version.
@@ -141,6 +154,8 @@ export class Edith {
   private firstName = ''
   private history: ChatTurn[] = []
   private last: { you: string; reply: string } | null = null
+  /** EDITH 3: a job on the wearer's PC waiting for their tap to approve it. */
+  private approval: { what: string; token: string } | null = null
   /** The last question as it was asked, for a second opinion. */
   private lastAsked = ''
   private prefs: Prefs = { ...DEFAULT_PREFS }
@@ -344,6 +359,7 @@ export class Edith {
 
   private onTap(): void {
     if (Date.now() - this.holdReleasedAt < CLICK_AFTER_HOLD_MS) return
+    if (this.approval && this.mode === 'idle') return void this.approve()
     if (this.mode === 'listening') return void this.finishListening('manual')
     if (this.canListen()) void this.startListening('tap')
   }
@@ -355,6 +371,11 @@ export class Edith {
   }
 
   private onDoubleTap(): void {
+    // A job for the PC waiting for a tap: a double-tap says no, and nothing runs.
+    if (this.approval) {
+      this.approval = null
+      return this.goIdle(tg('g.approveCancelled'))
+    }
     // Subtitles hold the display, so they are what a double-tap puts down first.
     if (this.room) return this.stopRoom()
     // A follow-up nobody has spoken into yet is still the home screen to the wearer: a
@@ -367,6 +388,8 @@ export class Edith {
   }
 
   private onHoldStart(): void {
+    // Asking something else instead of approving: the job waits no longer.
+    if (this.canListen()) this.approval = null
     if (this.canListen()) void this.startListening('hold')
   }
 
@@ -1149,6 +1172,9 @@ export class Edith {
       // A rule was broken since the last question: said plainly, once.
       if (reply.warning) this.showWarning(reply.warning)
       if (reply.warning?.blocked) return
+      // EDITH 3: a job on the wearer's PC that waits for their tap. No follow-up listening:
+      // the next tap is the answer to this.
+      if (reply.confirm) return this.askApproval(reply.confirm, reply.reply)
       this.goIdle()
       this.listenForFollowUp()
     } catch (err) {
@@ -1288,6 +1314,38 @@ export class Edith {
   // ── Screens ─────────────────────────────────────────────────────────────
 
   /** Idle when EDITH has an AI, otherwise the setup screen. `note` is glasses text. */
+  /** EDITH 3: something on the wearer's PC (a command, a file outside the workspace) waiting for their tap. */
+  private askApproval(confirm: { what: string; token: string }, reply: string): void {
+    this.approval = { what: confirm.what, token: confirm.token }
+    this.phone.addNote(t('note.approveOnGlasses', { what: confirm.what }))
+    this.setMode('idle')
+    this.statusKind = 'online'
+    const body = `${forGlasses(reply)}
+
+▶ ${forGlasses(confirm.what)}
+
+${tg('g.approveHint')}`
+    this.hud.set({ status: `◆ ${tg('g.status.approve')}`, body: clip(body, 1990) })
+  }
+
+  /** The wearer tapped to approve: the PC does the job, and what came of it is shown. */
+  private async approve(): Promise<void> {
+    const pending = this.approval
+    this.approval = null
+    if (!pending) return
+    this.setMode('thinking')
+    this.hud.set({ status: `◆ ${tg('g.status.pc')}`, body: `▶ ${forGlasses(pending.what)}` })
+    try {
+      const done = await this.api.confirm(pending.token)
+      const line = done.ok ? `✓ ${done.said || pending.what}` : `✗ ${done.error || pending.what}`
+      this.last = { you: '', reply: forGlasses(line) }
+      this.phone.addNote(line)
+      this.goIdle()
+    } catch (err) {
+      this.fail(err)
+    }
+  }
+
   private goHome(note?: string): void {
     if (this.hasAccess()) this.goIdle(note)
     else this.showSetup({ glassesNote: note })
