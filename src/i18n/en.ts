@@ -561,6 +561,13 @@ export const en = {
   'g.status.approve': 'APPROVE?',
   'g.approveHint': 'Tap to approve. Double-tap to cancel.',
   'g.approveCancelled': 'Cancelled. Nothing ran on your PC.',
+  'menu.agent': 'Your agent',
+  'menu.edith': 'Back to EDITH',
+  'g.status.agent': 'AGENT',
+  'g.agentOn': 'Agent mode: you talk straight to your own agent on your PC.',
+  'g.agentOff': 'Back to EDITH.',
+  'g.agentNone': 'No agent is linked. In EDITH\'s PC app: settings, CONNECT YOUR AGENT, then LINK GLASSES.',
+  'g.agentDone': 'Your agent finished:',
 }
 
 export type Key = keyof typeof en

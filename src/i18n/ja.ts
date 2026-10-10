@@ -541,4 +541,11 @@ export const ja: Strings = {
   'g.status.approve': '承認しますか?',
   'g.approveHint': 'タップで承認、2回タップで取消。',
   'g.approveCancelled': 'キャンセルしました。PCでは何も実行していません。',
+  'menu.agent': '自分のエージェント',
+  'menu.edith': 'EDITHに戻る',
+  'g.status.agent': 'エージェント',
+  'g.agentOn': 'エージェントモード: PCの自分のエージェントと直接話します。',
+  'g.agentOff': 'EDITHに戻りました。',
+  'g.agentNone': 'エージェントがリンクされていません。EDITHのPCアプリで設定、CONNECT YOUR AGENT、LINK GLASSES。',
+  'g.agentDone': 'エージェントが完了:',
 }

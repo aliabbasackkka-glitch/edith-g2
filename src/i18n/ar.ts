@@ -545,4 +545,11 @@ export const arLatin: Pick<Strings, GlassesKey> = {
   'g.status.approve': 'MUWAFAQA?',
   'g.approveHint': 'Ingur lel muwafaqa. Ingur marratain lel ilgha.',
   'g.approveCancelled': 'Tam al-ilgha. Lam yatim shay ala al-PC.',
+  'menu.agent': 'Wakiluk',
+  'menu.edith': 'Raje ila EDITH',
+  'g.status.agent': 'WAKIL',
+  'g.agentOn': 'Wade al-wakil: tatakallam mubasharatan ma wakilak ala al-PC.',
+  'g.agentOff': 'Raje ila EDITH.',
+  'g.agentNone': 'La yujad wakil mutasil. Fi tatbiq EDITH lel-PC: al-iedadat, CONNECT YOUR AGENT, thumma LINK GLASSES.',
+  'g.agentDone': 'Wakiluk intaha:',
 }

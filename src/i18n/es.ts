@@ -541,4 +541,11 @@ export const es: Strings = {
   'g.status.approve': 'APROBAR?',
   'g.approveHint': 'Toca para aprobar. Doble toque cancela.',
   'g.approveCancelled': 'Cancelado. No se hizo nada en tu PC.',
+  'menu.agent': 'Tu agente',
+  'menu.edith': 'Volver a EDITH',
+  'g.status.agent': 'AGENTE',
+  'g.agentOn': 'Modo agente: hablas directamente con tu agente en el PC.',
+  'g.agentOff': 'De vuelta con EDITH.',
+  'g.agentNone': 'No hay agente vinculado. En la app de PC de EDITH: ajustes, CONNECT YOUR AGENT y LINK GLASSES.',
+  'g.agentDone': 'Tu agente termino:',
 }

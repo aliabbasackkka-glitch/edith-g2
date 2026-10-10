@@ -32,6 +32,8 @@
  *          POST   /api/agent/next   { pcId, secret }  -> the next job for this PC (held ~20 s)
  *          POST   /api/agent/done   { pcId, secret, jobId, result }
  *          POST   /api/agent/forget { pcId, secret }  unlinks and forgets this PC
+ *          POST   /api/agent/status                  (the glasses) is a PC linked, and to which agent
+ *          POST   /api/agent/result { job }          (the glasses) a long task's answer from their own agent
  *
  * EDITH 1.5.0 and later send a chatId (saved chats, lib/chats.mjs) and answer preferences
  * (style, instructions, specialist, translateTo; lib/prefs.mjs) with each question.
@@ -93,7 +95,7 @@ import {
 import { appendToChat, cleanChatId, deleteAllChats, deleteChat, getChat, listChats, remember, searchChats, setChatTitle } from "./lib/chats.mjs";
 import { connectCallback, connectRedirect, pollConnect, startConnect } from "./lib/connect.mjs";
 import { cleanActions, cleanHome, confirmHome, publicHttps, runAction } from "./lib/home.mjs";
-import { confirmPc, linkedPc, pcDone, pcForget, pcHello, pcNext } from "./lib/agent.mjs";
+import { agentReplyText, agentResult, askMyAgent, confirmPc, linkedPc, pcDone, pcForget, pcHello, pcNext } from "./lib/agent.mjs";
 import { cityAt, readLocation } from "./lib/places.mjs";
 import { ProviderError } from "./lib/http.mjs";
 import { LANGUAGES, languageOf } from "./lib/languages.mjs";
@@ -355,6 +357,32 @@ async function converse({ chat, body, uk, userText, image, memories, history, em
   };
 }
 
+/** Agent mode: the question goes to the wearer's own agent on their PC, as they said it. */
+async function askAgentDirectly({ uk, userText, body, emit, chatId, prefs }) {
+  if (!userText) throw new ProviderError("unclear", "Didn't catch that.");
+  emit({ type: "tool", names: ["ask_my_agent"] });
+  const flags = { confirm: null };
+  const reply = agentReplyText(await askMyAgent(uk, userText, flags));
+  emit({ type: "delta", text: reply });
+  const prior = (Array.isArray(body.history) ? body.history : []).slice(-20);
+  return {
+    reply,
+    model: "your agent",
+    toolsUsed: ["ask_my_agent"],
+    memoryChanged: false,
+    ...(flags.confirm ? { confirm: flags.confirm } : {}),
+    ...(flags.agentJob ? { agentJob: flags.agentJob } : {}),
+    userText,
+    history: [...prior, { role: "user", parts: [{ text: userText }] }, { role: "model", parts: [{ text: reply }] }],
+    provider: "agent",
+    answeredBy: "agent",
+    chatId: chatId || undefined,
+    save: chatId
+      ? () => appendToChat(uk, chatId, { userText, reply, specialist: prefs.specialist })
+      : () => Promise.resolve({ needsTitle: false }),
+  };
+}
+
 /** Transcribes (if audio) and answers. */
 async function runChat({ access, body, text, audio, image, uk, emit, signal, language, prefs, chatId, world }) {
   // Memories are read while the audio is being transcribed, not after: storage can be a
@@ -368,6 +396,8 @@ async function runChat({ access, body, text, audio, image, uk, emit, signal, lan
     emit({ type: "transcript", text: spoken });
   }
   const userText = [text, spoken].filter(Boolean).join(" ").trim();
+  // EDITH 3: agent mode, where the glasses talk straight to the wearer's own agent.
+  if (world.agentMode) return askAgentDirectly({ uk, userText, body, emit, chatId, prefs });
   const memories = await memoriesRead;
   const history = normaliseHistory(body.history);
 
@@ -512,6 +542,9 @@ async function handleChat(req, body, uk, device, background) {
     const pc = await linkedPc(uk).catch(() => null);
     world.can.pcLinkable = true;
     world.can.pc = pc ? pc.name || "PC" : false;
+    // A bridge to their own agent (Hermes Agent, OpenClaw...) when the PC app has one set up.
+    world.can.agent = pc?.agent || false;
+    world.agentMode = Boolean(body.agentMode && pc?.agent);
   }
   const job = async (emit, signal) => {
     // Flagged since they last asked something? They hear about it with this answer, once
@@ -657,7 +690,17 @@ async function handleGlance(req) {
 }
 
 /** EDITH 3 (beta): EDITH's PC app links itself, asks for work and hands back what it did. */
-async function handleAgent(req, step, body) {
+async function handleAgent(req, step, body, uk) {
+  if (step === "status") {
+    // The glasses ask whether their PC is linked, and to which agent (for agent mode).
+    const pc = uk === "anon" ? null : await linkedPc(uk);
+    return json({ linked: Boolean(pc), ...(pc ? { name: pc.name, agent: pc.agent || "" } : {}) });
+  }
+  if (step === "result") {
+    if (uk === "anon") return json({ error: "Missing X-Device-Id.", kind: "other" }, 400);
+    const out = await agentResult(uk, body.job);
+    return json(out.body, out.status);
+  }
   if (step === "hello") {
     if (!(await allowRate(`rate/agent/${clientNetwork(req)}`, 120, HOUR_MS))) return json({ error: "Too many tries. Wait a few minutes." }, 429);
     const out = await pcHello(body);
@@ -954,7 +997,7 @@ export async function handle(req, ctx) {
       return json({ lists: await getLists(uk) });
     }
     const agentAt = parts.indexOf("agent");
-    if (agentAt >= 0 && req.method === "POST") return await handleAgent(req, parts[agentAt + 1] || "", body);
+    if (agentAt >= 0 && req.method === "POST") return await handleAgent(req, parts[agentAt + 1] || "", body, uk);
     if (route === "chat" && req.method === "POST") return await handleChat(req, body, uk, device, background);
     if (route === "speak" && req.method === "POST") return await handleSpeak(req, body);
     if (route === "check-key" && req.method === "POST") {

@@ -29,6 +29,8 @@ export interface ChatReply {
   /** Something that unlocks or opens a way into the home, waiting for a tap on the glasses. */
   /** Something waiting for a tap on the glasses: a door to unlock, or a job on the wearer's PC (EDITH 3). */
   confirm?: { what: string; token: string; kind?: string }
+  /** EDITH 3: a long task their agent is still working on; its answer is fetched with agentResult(). */
+  agentJob?: string
   /** A list to show on the glasses and tick off (1.7.0). */
   list?: SavedList
   /** Things to choose between on the glasses, e.g. which café to walk to (1.7.0). */
@@ -59,6 +61,8 @@ export interface AnswerOptions {
   calendar?: CalendarSend[]
   home?: HomeSettings
   actions?: ActionLink[]
+  /** EDITH 3: the question goes straight to the wearer's own agent on their PC (Hermes Agent, OpenClaw...). */
+  agentMode?: boolean
   /** What this phone can do with an answer, e.g. run a countdown. */
   can?: string[]
   /** What EDITH heard in the room just now, for notes and "what did they just say?" (1.8.0). */
@@ -422,14 +426,42 @@ export class EdithApi {
    * Carries out what the wearer tapped to confirm: unlocking a door, opening a garage, or
    * (EDITH 3) a job on their PC, whose outcome comes back as `said`.
    */
-  async confirm(token: string, home?: HomeSettings): Promise<{ ok: boolean; what?: string; said?: string; error?: string }> {
+  async confirm(
+    token: string,
+    home?: HomeSettings,
+  ): Promise<{ ok: boolean; what?: string; said?: string; error?: string; confirm?: ChatReply['confirm']; agentJob?: string }> {
     const res = await this.request('/confirm', {
       method: 'POST',
       headers: this.headers({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ token, home }),
     })
     const data = await res.json().catch(() => ({}))
-    return { ok: Boolean(data.ok), what: data.what, said: data.said ? String(data.said) : undefined, error: data.error }
+    return {
+      ok: Boolean(data.ok),
+      what: data.what,
+      said: data.said ? String(data.said) : undefined,
+      error: data.error,
+      confirm: data.confirm && typeof data.confirm === 'object' ? (data.confirm as ChatReply['confirm']) : undefined,
+      agentJob: typeof data.agentJob === 'string' ? data.agentJob : undefined,
+    }
+  }
+
+  /** EDITH 3: whether this phone's PC is linked, and which agent it bridges to. */
+  async agentStatus(): Promise<{ linked: boolean; name?: string; agent?: string }> {
+    const res = await this.request('/agent/status', { method: 'POST', headers: this.headers({ 'Content-Type': 'application/json' }), body: '{}' })
+    const data = await res.json().catch(() => ({}))
+    return { linked: Boolean(data.linked), name: data.name ? String(data.name) : undefined, agent: data.agent ? String(data.agent) : undefined }
+  }
+
+  /** EDITH 3: a long task's answer from the wearer's agent, once it is done. */
+  async agentResult(job: string): Promise<{ done: boolean; said?: string }> {
+    const res = await this.request('/agent/result', {
+      method: 'POST',
+      headers: this.headers({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ job }),
+    })
+    const data = await res.json().catch(() => ({}))
+    return { done: Boolean(data.done), said: data.said ? String(data.said) : undefined }
   }
 
   /**
@@ -682,6 +714,7 @@ function toReply(data: Record<string, unknown>, history: ChatTurn[]): ChatReply 
     timers: Array.isArray(data.timers) ? (data.timers as ChatReply['timers']) : undefined,
     cancelTimers: data.cancelTimers === true ? true : undefined,
     confirm: data.confirm && typeof data.confirm === 'object' ? (data.confirm as ChatReply['confirm']) : undefined,
+    agentJob: typeof data.agentJob === 'string' ? data.agentJob : undefined,
     warning: data.warning && typeof data.warning === 'object' ? (data.warning as ChatReply['warning']) : undefined,
   }
 }

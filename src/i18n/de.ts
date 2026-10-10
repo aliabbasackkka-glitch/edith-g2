@@ -541,4 +541,11 @@ export const de: Strings = {
   'g.status.approve': 'ERLAUBEN?',
   'g.approveHint': 'Tippen erlaubt. Zweimal tippen bricht ab.',
   'g.approveCancelled': 'Abgebrochen. Am PC ist nichts passiert.',
+  'menu.agent': 'Dein Agent',
+  'menu.edith': 'Zurueck zu EDITH',
+  'g.status.agent': 'AGENT',
+  'g.agentOn': 'Agent-Modus: du sprichst direkt mit deinem Agenten auf dem PC.',
+  'g.agentOff': 'Zurueck bei EDITH.',
+  'g.agentNone': 'Kein Agent verbunden. In EDITHs PC-App: Einstellungen, CONNECT YOUR AGENT, dann LINK GLASSES.',
+  'g.agentDone': 'Dein Agent ist fertig:',
 }

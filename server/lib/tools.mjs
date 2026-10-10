@@ -10,7 +10,7 @@ import { changeList, cleanName, findList, getLists, saveList } from "./lists.mjs
 import { LANGUAGES } from "./languages.mjs";
 import { UnsafeAddressError, publicFetch, publicHttps } from "./net.mjs";
 import { cityAt, nearbyPlaces } from "./places.mjs";
-import { askToApprove, callPc, linkPc, unlinkPc } from "./agent.mjs";
+import { askMyAgent, askToApprove, callPc, linkPc, unlinkPc } from "./agent.mjs";
 import { saveMemory } from "./storage.mjs";
 
 const obj = (properties, required = []) => ({ type: "object", properties, required });
@@ -24,6 +24,11 @@ const DEFS = {
     parameters: obj({ code: str("The 6 digits.") }, ["code"]),
   },
   unlink_pc: { description: "Stop EDITH using the user's linked PC.", parameters: obj({}) },
+  ask_my_agent: {
+    description:
+      "Hand a task or question to the user's own AI agent running on their PC (Hermes Agent, OpenClaw or similar), which has its own tools, memory and skills. Use it when they say 'ask my agent', or for work their agent does (coding, research, their projects, automations). Pass their request as they'd say it to the agent.",
+    parameters: obj({ message: str("What to ask or tell their agent.") }, ["message"]),
+  },
   pc_status: {
     description: "Whether the user's linked PC is on, its name, battery, free disk space and where EDITH's workspace folder is.",
     parameters: obj({}),
@@ -264,6 +269,7 @@ export function toolsFor(can = {}) {
   if (can.actions) names.push("run_action");
   // EDITH 3: the user's own PC, once it is linked; until then only the way to link it.
   if (can.pc) names.push(...PC_TOOLS, "unlink_pc");
+  if (can.agent) names.push("ask_my_agent");
   else if (can.pcLinkable) names.push("link_pc");
 
   return names.map((name) => ({ name, ...DEFS[name] }));
@@ -570,6 +576,8 @@ export async function runTool(name, args, ctx) {
         return await linkPc(ctx.uk, args.code);
       case "unlink_pc":
         return await unlinkPc(ctx.uk);
+      case "ask_my_agent":
+        return await askMyAgent(ctx.uk, args.message, ctx.flags);
       case "pc_run_command": {
         const command = String(args.command || "").trim();
         if (!command) return { error: "No command given." };

@@ -199,7 +199,12 @@ export function buildSystemPrompt({
         "the screen; schedule tasks the PC runs later; and run commands with pc_run_command, which waits for their tap to " +
         "approve. Use several tools in a row to finish the job, then say in one or two lines what you did and where it is. " +
         "Never open, read or send passwords, keys or private files they didn't ask about, and never delete anything " +
-        "unless they clearly asked.\n"
+        "unless they clearly asked.\n" +
+        (able.agent
+          ? `- Their own agent: their PC also runs their own AI agent (${String(able.agent)}), with its own tools, memory and ` +
+            "skills. When they say 'ask my agent', or want work their agent does, call ask_my_agent with their request and pass " +
+            "on its answer. If it needs approval, say it is waiting for their tap on the glasses.\n"
+          : "")
       : able.pcLinkable
         ? "- Their PC: if they want you to work on their computer (files, building something, commands), tell them to " +
           "open EDITH's PC app, press LINK GLASSES and say the 6-digit code it shows; then call link_pc with it.\n"

@@ -16,6 +16,11 @@
 //   agent/job/<pcId>/<jobId>  { tool, args, approved, at }
 //   agent/run/<jobId>         { pcId, at }              picked up, waiting for its answer
 //   agent/done/<jobId>        { result, at }
+//   agent/owner/<jobId>       { uk }                    whose answer a long job is, for /api/agent/result
+//
+// EDITH 3 is also a bridge to the wearer's own agent (Hermes Agent, OpenClaw, or anything
+// with an OpenAI-style API) running on the PC: the PC app passes questions to it, its answers
+// back, and its requests for approval to the glasses as a tap.
 
 import crypto from "node:crypto";
 import { isAnon, listJSON, readJSON, removeKey, writeJSON } from "./storage.mjs";
@@ -53,6 +58,11 @@ export async function pcHello(body) {
   const rec = who.rec || { secretHash: hash(who.secret), linkedTo: null, created: now };
   rec.name = cleanName(body.name);
   rec.os = String(body.os || "").slice(0, 40);
+  rec.agent = ["hermes", "openclaw", "openai"].includes(body.agent) ? body.agent : "";
+  if (rec.linkedTo) {
+    const link = await readJSON(`agent/link/${rec.linkedTo}`, null);
+    if (link && link.pcId === who.pcId && link.agent !== rec.agent) await writeJSON(`agent/link/${rec.linkedTo}`, { ...link, agent: rec.agent });
+  }
   rec.seen = now;
   if (rec.linkedTo && !(await readJSON(`agent/link/${rec.linkedTo}`, null))) rec.linkedTo = null;
   if (!rec.linkedTo && (!rec.code || now - (rec.codeAt || 0) > CODE_MS - 60_000)) {
@@ -96,7 +106,7 @@ export async function linkPc(uk, rawCode) {
   }
   if (rec.linkedTo && rec.linkedTo !== uk) await removeKey(`agent/link/${rec.linkedTo}`);
   await writeJSON(`agent/pc/${pending.pcId}`, { ...rec, linkedTo: uk, code: "", codeAt: 0 });
-  await writeJSON(`agent/link/${uk}`, { pcId: pending.pcId, name: rec.name, at: Date.now() });
+  await writeJSON(`agent/link/${uk}`, { pcId: pending.pcId, name: rec.name, agent: rec.agent || "", at: Date.now() });
   await removeKey(`agent/code/${code}`);
   return { ok: true, pc: rec.name };
 }
@@ -120,7 +130,7 @@ export async function linkedPc(uk) {
  * Asks the linked PC to run one tool and waits for its answer. `approved` is only ever set
  * once the wearer tapped the glasses to approve exactly this.
  */
-export async function callPc(uk, tool, args, { approved = false, waitMs = 30_000 } = {}) {
+export async function callPc(uk, tool, args, { approved = false, waitMs = 30_000, keepIfBusy = false } = {}) {
   const link = await linkedPc(uk);
   if (!link) return { error: "No PC is linked. In EDITH's PC app press LINK GLASSES, then say the code it shows." };
   const rec = await readJSON(`agent/pc/${link.pcId}`, null);
@@ -128,6 +138,7 @@ export async function callPc(uk, tool, args, { approved = false, waitMs = 30_000
   if (Date.now() - (rec.seen || 0) > OFFLINE_MS) return { error: `${rec.name} isn't connected right now: EDITH's PC app has to be open on it.` };
   const jobId = crypto.randomBytes(12).toString("hex");
   await writeJSON(`agent/job/${link.pcId}/${jobId}`, { tool, args: args ?? {}, approved: Boolean(approved), at: Date.now() });
+  if (keepIfBusy) await writeJSON(`agent/owner/${jobId}`, { uk, at: Date.now() });
   const until = Date.now() + waitMs;
   while (Date.now() < until) {
     await sleep(POLL_EVERY_MS);
@@ -137,8 +148,11 @@ export async function callPc(uk, tool, args, { approved = false, waitMs = 30_000
       return done.result ?? { ok: true };
     }
   }
+  // Picked up and still running (an agent's long task): its answer is fetched later.
+  if (keepIfBusy && (await readJSON(`agent/run/${jobId}`, null))) return { still_working: true, job_id: jobId };
   // Still waiting to be picked up: take it back, so it doesn't run long after it was asked for.
   await removeKey(`agent/job/${link.pcId}/${jobId}`);
+  if (keepIfBusy) await removeKey(`agent/owner/${jobId}`);
   return { error: `${rec.name} didn't answer in time. It may still be busy; ask again in a moment.` };
 }
 
@@ -234,6 +248,54 @@ export async function confirmPc(uk, token) {
   if (!pending || pending.kind !== "pc") return null;
   await removeKey(`confirm/${uk}/${id}`);
   if (Date.now() - pending.at > APPROVE_MS) return { ok: false, error: "That approval expired. Ask again." };
-  const result = await callPc(uk, pending.tool, pending.args, { approved: true, waitMs: 75_000 });
+  const agent = pending.tool === "agent_approve";
+  const result = await callPc(uk, pending.tool, pending.args, { approved: true, waitMs: 75_000, keepIfBusy: agent });
+  if (agent) {
+    if (result?.needs_approval) {
+      // The agent wants another step approved: the glasses ask again.
+      const flags = {};
+      await askToApprove(uk, flags, "agent_approve", { ref: result.ref }, `Your agent wants to: ${result.what || "do the next step"}`);
+      return { ok: true, what: pending.what, said: agentReplyText(result), confirm: flags.confirm };
+    }
+    return { ok: !result?.error, what: pending.what, said: agentReplyText(result), error: result?.error, ...(result?.still_working ? { agentJob: result.job_id } : {}) };
+  }
   return { ok: !result?.error, what: pending.what, said: resultLine(result), error: result?.error };
+}
+
+/**
+ * A question for the wearer's own agent on their PC (Hermes Agent, OpenClaw...). Its answer,
+ * a request to approve something (shown on the glasses as a tap), or, for a long task, a job
+ * id the glasses fetch the answer with later.
+ */
+export async function askMyAgent(uk, text, flags) {
+  const result = await callPc(uk, "agent_ask", { text: String(text || "").slice(0, 8000) }, { waitMs: 95_000, keepIfBusy: true });
+  if (result?.needs_approval) {
+    const asked = await askToApprove(uk, flags, "agent_approve", { ref: result.ref }, `Your agent wants to: ${result.what || "do the next step"}`);
+    return { ...asked, so_far: result.so_far || "" };
+  }
+  if (result?.still_working) flags.agentJob = result.job_id;
+  return result;
+}
+
+/** What the agent said, as the line to show (or the reason it couldn't answer). */
+export function agentReplyText(result) {
+  if (!result || typeof result !== "object") return "Your agent didn't answer.";
+  if (result.error) return `Your agent couldn't answer: ${result.error}`;
+  if (result.needs_approval) return `${result.so_far ? `${result.so_far}
+
+` : ""}${result.what}`;
+  if (result.still_working) return "Your agent is working on it. The answer shows here when it's done.";
+  return String(result.output ?? result.text ?? "Done.").trim() || "Done.";
+}
+
+/** A long job's answer, once the PC has it; only for the phone that asked. */
+export async function agentResult(uk, rawJob) {
+  const jobId = cleanId(rawJob);
+  const owner = await readJSON(`agent/owner/${jobId}`, null);
+  if (!owner || owner.uk !== uk) return { status: 404, body: { error: "No such job." } };
+  const done = await readJSON(`agent/done/${jobId}`, null);
+  if (!done) return { status: 200, body: { done: false } };
+  await removeKey(`agent/done/${jobId}`);
+  await removeKey(`agent/owner/${jobId}`);
+  return { status: 200, body: { done: true, said: agentReplyText(done.result), result: done.result } };
 }

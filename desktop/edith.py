@@ -556,7 +556,8 @@ class Config:
                 "provider": "", "keys": {}, "models": {}, "voice_provider": "", "voice_key": "",
                 "style": "normal", "language": lang, "voice_on": True,
                 "voice_name": VOICE_FOR_LANGUAGE.get(lang, "en-GB-SoniaNeural"), "voice_source": "edge", "global_ptt": False,
-                "agent": {"on": False, "pc_id": "", "secret": "", "tasks": []}}
+                "agent": {"on": False, "pc_id": "", "secret": "", "tasks": [],
+                          "bridge": {"kind": "", "url": "", "key": "", "agent_id": "main"}}}
 
     def load(self):
         try:
@@ -594,7 +595,13 @@ class Config:
         a = raw.get("agent")
         if isinstance(a, dict):
             d["agent"] = {"on": bool(a.get("on")), "pc_id": str(a.get("pc_id") or "")[:48], "secret": str(a.get("secret") or "")[:96],
-                          "tasks": [t for t in a.get("tasks") or [] if isinstance(t, dict) and t.get("id") and t.get("task") and t.get("time")][:20]}
+                          "tasks": [t for t in a.get("tasks") or [] if isinstance(t, dict) and t.get("id") and t.get("task") and t.get("time")][:20],
+                          "bridge": {"kind": "", "url": "", "key": "", "agent_id": "main"}}
+            b = a.get("bridge")
+            if isinstance(b, dict):
+                d["agent"]["bridge"] = {"kind": b.get("kind") if b.get("kind") in ("hermes", "openclaw", "openai") else "",
+                                        "url": str(b.get("url") or "")[:200], "key": str(b.get("key") or "")[:300],
+                                        "agent_id": str(b.get("agent_id") or "main")[:60]}
         if d["voice_source"] not in VOICE_SOURCES:
             d["voice_source"] = "edge"
         if d["voice_source"] != "edge" and not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", d["voice_name"]):
@@ -1279,6 +1286,190 @@ def agent_status(name):
     return info
 
 
+# ── the bridge to the wearer's own agent (Hermes Agent, OpenClaw, or any OpenAI-style API) ──
+AGENT_KINDS = {
+    "hermes": {"label": "Hermes Agent", "url": "http://127.0.0.1:8642",
+               "help": "In ~/.hermes/.env set API_SERVER_ENABLED=true and API_SERVER_KEY=…, run `hermes gateway`, and paste that key here."},
+    "openclaw": {"label": "OpenClaw", "url": "http://127.0.0.1:18789",
+                 "help": "Turn on gateway.http.endpoints.chatCompletions.enabled, and paste your gateway token here."},
+    "openai": {"label": "Other (OpenAI-style API)", "url": "http://127.0.0.1:8000",
+               "help": "Any agent that answers POST /v1/chat/completions. Paste its key if it has one."},
+}
+AGENT_SESSION = "edith-glasses"
+AGENT_MAX_S = 30 * 60  # the longest EDITH waits on one task from the glasses
+
+
+def agent_base(url):
+    u = str(url or "").strip().rstrip("/")
+    if u.endswith("/v1"):
+        u = u[:-3]
+    p = urlparse(u)
+    if p.scheme not in ("http", "https") or not p.netloc:
+        raise AgentRefused("The agent's address should look like http://127.0.0.1:8642")
+    return u
+
+
+class AgentBridge:
+    """Passes the glasses' questions to the agent on this PC, and its answers and approvals back."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self._paused = {}     # Hermes runs waiting for the wearer's approval: ref -> run id
+        self._history = []    # for agents that don't keep a conversation themselves
+        self._lock = threading.Lock()
+
+    def settings(self):
+        return self.cfg.data["agent"].get("bridge") or {}
+
+    def kind(self):
+        b = self.settings()
+        return b.get("kind") if b.get("kind") in AGENT_KINDS and b.get("url") else ""
+
+    def _headers(self):
+        h = {"Content-Type": "application/json", "User-Agent": f"EDITH-PC/{APP_VERSION}"}
+        key = self.settings().get("key")
+        if key:
+            h["Authorization"] = f"Bearer {key}"
+        return h
+
+    def test(self):
+        """Checks the agent answers: a line saying what was found."""
+        base = agent_base(self.settings().get("url"))
+        try:
+            r = requests.get(f"{base}/v1/models", headers=self._headers(), timeout=8)
+        except requests.RequestException as err:
+            raise AgentRefused(f"Can't reach your agent at {base} ({_reason(err)}). Is it running?") from None
+        if r.status_code in (401, 403):
+            raise AgentRefused("Your agent refused the key. Check the key or token.")
+        if r.status_code >= 400:
+            raise AgentRefused(f"Your agent answered {r.status_code}. Is its API turned on?")
+        try:
+            names = [m.get("id") for m in (r.json().get("data") or []) if isinstance(m, dict)][:3]
+        except Exception:
+            names = []
+        return f"Connected: {AGENT_KINDS[self.kind() or 'openai']['label']}" + (f" ({', '.join(n for n in names if n)})" if names else "")
+
+    # ── one question ──
+    def ask(self, text, job_id):
+        if not self.kind():
+            raise AgentRefused("No agent is connected on this PC. In EDITH's PC app: ⚙, then CONNECT YOUR AGENT.")
+        if self.kind() == "hermes":
+            try:
+                return self._hermes_run(text, job_id)
+            except _NoRuns:
+                pass  # an older Hermes without runs: plain chat instead
+        return self._chat(text)
+
+    def approve(self, ref, yes=True):
+        run = self._paused.pop(str(ref or ""), None)
+        if not run:
+            raise AgentRefused("That approval isn't waiting any more. Ask your agent again.")
+        base = agent_base(self.settings().get("url"))
+        choice = "once" if yes else "deny"
+        # Hermes names the choice "once" or "deny"; the field is sent under the names its versions use.
+        body = {"choice": choice, "decision": choice, "approved": yes, "approve": yes}
+        r = requests.post(f"{base}/v1/runs/{run}/approval", headers=self._headers(), json=body, timeout=20)
+        if r.status_code >= 400:
+            raise AgentRefused(f"Your agent didn't take the approval ({r.status_code}): {r.text[:200]}")
+        return self._hermes_follow(run, "")
+
+    # ── Hermes Agent: runs, so approvals can reach the glasses ──
+    def _hermes_run(self, text, job_id):
+        base = agent_base(self.settings().get("url"))
+        h = {**self._headers(), "Idempotency-Key": f"edith-{job_id}"[:200]}
+        r = requests.post(f"{base}/v1/runs", headers=h, json={"input": text, "session_id": AGENT_SESSION}, timeout=20)
+        if r.status_code == 404:
+            raise _NoRuns()
+        if r.status_code in (401, 403):
+            raise AgentRefused("Your agent refused the key. Check it in EDITH's PC app.")
+        if r.status_code >= 400:
+            raise AgentRefused(f"Your agent answered {r.status_code}: {r.text[:200]}")
+        run = r.json().get("run_id")
+        if not run:
+            raise AgentRefused("Your agent didn't start the task.")
+        return self._hermes_follow(run, "")
+
+    def _hermes_follow(self, run, so_far):
+        """Reads the run's events until it finishes or asks for approval."""
+        base = agent_base(self.settings().get("url"))
+        started, text, event = time.time(), so_far, ""
+        try:
+            with requests.get(f"{base}/v1/runs/{run}/events", headers={**self._headers(), "Accept": "text/event-stream"},
+                              stream=True, timeout=(10, 90)) as res:
+                for raw in res.iter_lines(decode_unicode=True):
+                    if time.time() - started > AGENT_MAX_S:
+                        break
+                    if not raw or raw.startswith(":"):
+                        continue
+                    if raw.startswith("event:"):
+                        event = raw[6:].strip()
+                        continue
+                    if not raw.startswith("data:"):
+                        continue
+                    try:
+                        data = json.loads(raw[5:].strip() or "{}")
+                    except Exception:
+                        data = {}
+                    kind = event or str(data.get("type") or data.get("event") or "")
+                    if kind == "message.delta":
+                        text += str(data.get("delta") or data.get("text") or "")
+                    elif kind == "approval.request":
+                        ref = secrets.token_hex(8)
+                        self._paused[ref] = run
+                        what = (data.get("description") or data.get("command") or data.get("preview") or data.get("tool")
+                                or data.get("title") or "run the next step")
+                        return {"needs_approval": True, "what": str(what)[:180], "ref": ref, "so_far": text.strip()[-600:]}
+                    elif kind in ("run.completed", "run.failed", "run.cancelled", "run.interrupted"):
+                        break
+        except requests.RequestException:
+            pass  # the stream dropped: the run's own status says how it ended
+        for _ in range(int(AGENT_MAX_S / 2)):
+            got = requests.get(f"{base}/v1/runs/{run}", headers=self._headers(), timeout=15).json()
+            status = got.get("status")
+            if status == "waiting_for_approval":
+                ref = secrets.token_hex(8)
+                self._paused[ref] = run
+                return {"needs_approval": True, "what": "run the next step", "ref": ref, "so_far": text.strip()[-600:]}
+            if status in ("completed", "failed", "cancelled", "interrupted"):
+                out = str(got.get("output") or text).strip()
+                if status != "completed":
+                    return {"error": f"The task {status}." + (f" {out[:400]}" if out else "")}
+                return {"ok": True, "output": out[:8000] or "Done."}
+            time.sleep(2)
+        return {"error": "Your agent is still on it after 30 minutes."}
+
+    # ── OpenClaw, Hermes without runs, or any OpenAI-style agent ──
+    def _chat(self, text):
+        b = self.settings()
+        base = agent_base(b.get("url"))
+        kind = self.kind()
+        model = {"hermes": "hermes-agent", "openclaw": f"openclaw:{b.get('agent_id') or 'main'}"}.get(kind, b.get("model") or "agent")
+        with self._lock:
+            # OpenClaw keeps the conversation itself (by `user`); the others are sent it.
+            messages = ([] if kind == "openclaw" else self._history[-20:]) + [{"role": "user", "content": text}]
+        try:
+            r = requests.post(f"{base}/v1/chat/completions", headers=self._headers(), timeout=(10, AGENT_MAX_S),
+                              json={"model": model, "messages": messages, "user": AGENT_SESSION, "stream": False})
+        except requests.RequestException as err:
+            raise AgentRefused(f"Can't reach your agent ({_reason(err)}). Is it running?") from None
+        if r.status_code in (401, 403):
+            raise AgentRefused("Your agent refused the key. Check it in EDITH's PC app.")
+        if r.status_code >= 400:
+            raise AgentRefused(f"Your agent answered {r.status_code}: {r.text[:200]}")
+        try:
+            out = str(r.json()["choices"][0]["message"]["content"] or "").strip()
+        except Exception:
+            raise AgentRefused("Your agent's answer wasn't in the usual format.") from None
+        with self._lock:
+            self._history += [{"role": "user", "content": text}, {"role": "assistant", "content": out}]
+            self._history = self._history[-40:]
+        return {"ok": True, "output": out[:8000] or "Done."}
+
+
+class _NoRuns(Exception):
+    pass
+
+
 class PcAgent:
     """Links this PC to the glasses and does the jobs they send (on a thread of its own)."""
 
@@ -1288,6 +1479,8 @@ class PcAgent:
         self.linked = False
         self.code = ""
         self.problem = ""
+        self.bridge = AgentBridge(self.cfg)
+        self.need_hello = False
         self._stop = threading.Event()
         self._thread = None
 
@@ -1299,7 +1492,7 @@ class PcAgent:
             a["secret"] = secrets.token_urlsafe(36)
             self.cfg.save()
         return {"pcId": a["pc_id"], "secret": a["secret"], "name": platform.node()[:40] or "PC",
-                "os": f"{platform.system()} {platform.release()}"[:40]}
+                "os": f"{platform.system()} {platform.release()}"[:40], "agent": self.bridge.kind()}
 
     def running(self):
         return self._thread is not None and self._thread.is_alive()
@@ -1337,6 +1530,8 @@ class PcAgent:
         while not self._stop.is_set():
             try:
                 ident = self._ident()
+                if self.need_hello:
+                    need_hello, self.need_hello = True, False
                 if need_hello or (not self.linked and time.time() > code_until):
                     hello = self.win.api.agent("hello", ident)
                     if hello.get("_status") == 403:
@@ -1388,18 +1583,29 @@ class PcAgent:
             pass  # the activity log is a nicety: the job is answered either way
 
     def _do(self, ident, job):
+        # Your own agent can take minutes: it gets a thread, and the glasses can ask more meanwhile.
+        if job.get("tool") in ("agent_ask", "agent_approve"):
+            threading.Thread(target=self._do_now, args=(ident, job), name="edith-agent-job", daemon=True).start()
+        else:
+            self._do_now(ident, job)
+
+    def _do_now(self, ident, job):
         tool, args, approved = str(job.get("tool") or ""), job.get("args") or {}, bool(job.get("approved"))
         if not isinstance(args, dict):
             args = {}
         self._say(f"SYS: ⌬ Glasses → {self._describe(tool, args)}{'  (approved)' if approved else ''}")
         try:
-            result = self._run(tool, args, approved)
+            result = self._run(tool, args, approved, str(job.get("id") or ""))
         except AgentRefused as why:
             result = {"error": str(why)}
         except Exception as err:
             result = {"error": f"That didn't work on the PC: {err}"}
         if result.get("error"):
             self._say(f"SYS: ⌬ {result['error']}")
+        elif tool in ("agent_ask", "agent_approve"):
+            said = result.get("output") or (f"wants approval: {result.get('what')}" if result.get("needs_approval") else "")
+            if said:
+                self._say(f"SYS: ⌬ Your agent: {str(said)[:160]}")
         try:
             self.win.api.agent("done", {**ident, "jobId": job.get("id"), "result": result})
         except Exception:
@@ -1412,10 +1618,17 @@ class PcAgent:
                 "pc_write_file": f"writing {args.get('path', '')}", "pc_open": f"opening {args.get('target', '')}",
                 "pc_run_command": f"running: {args.get('command', '')}", "pc_clipboard": "using the clipboard",
                 "pc_notify": "a note for you", "pc_schedule_task": f"scheduling \"{args.get('task', '')}\"",
-                "pc_tasks": "the scheduled tasks"}.get(tool, tool)
+                "pc_tasks": "the scheduled tasks", "agent_ask": f"asking your agent: {args.get('text', '')}",
+                "agent_approve": "you approved your agent's next step"}.get(tool, tool)
         return what[:160]
 
-    def _run(self, tool, args, approved):
+    def _run(self, tool, args, approved, job_id=""):
+        if tool == "agent_ask":
+            return self.bridge.ask(str(args.get("text") or "")[:8000], job_id)
+        if tool == "agent_approve":
+            if not approved:
+                raise AgentRefused("Only the wearer's tap on the glasses approves this.")
+            return self.bridge.approve(args.get("ref"))
         if tool == "pc_status":
             return agent_status(self._ident()["name"])
         if tool == "pc_find_files":
@@ -2555,6 +2768,63 @@ class ChatsDialog(QDialog):
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║  UI — MAIN WINDOW                                                        ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
+class AgentDialog(QDialog):
+    """Connects EDITH's PC app to the wearer's own agent: Hermes Agent, OpenClaw or an OpenAI-style API."""
+    def __init__(self,win):
+        super().__init__(win); self.win=win; self.setWindowTitle("Connect your agent"); self.setMinimumWidth(460)
+        self.setStyleSheet(f"QDialog{{background:{C.BG};}}QLabel{{color:{C.TEXT_MED};background:transparent;}}"
+                           f"QLineEdit,QComboBox{{background:{C.PANEL2};color:{C.TEXT};border:1px solid {C.BORDER_B};border-radius:3px;padding:6px;font-family:'Courier New';}}")
+        b=dict(win.cfg.data["agent"].get("bridge") or {})
+        lay=QVBoxLayout(self); lay.setContentsMargins(18,16,18,16); lay.setSpacing(8)
+        lay.addWidget(_label("⇄  CONNECT YOUR AGENT",11,True,C.PRI,Qt.AlignmentFlag.AlignLeft))
+        intro=QLabel("Your glasses talk straight to the agent you already run on this PC, through EDITH. Its tools, memory and skills stay yours; "
+                     "when it asks to approve something, you tap the glasses.")
+        intro.setWordWrap(True); intro.setFont(QFont("Courier New",8)); lay.addWidget(intro)
+        self.kind=QComboBox()
+        for k,v in AGENT_KINDS.items(): self.kind.addItem(v["label"],k)
+        self.kind.setCurrentIndex(max(0,list(AGENT_KINDS).index(b.get("kind"))) if b.get("kind") in AGENT_KINDS else 0)
+        lay.addWidget(_label("YOUR AGENT",7,True,C.TEXT_DIM,Qt.AlignmentFlag.AlignLeft)); lay.addWidget(self.kind)
+        self.url=QLineEdit(b.get("url") or ""); lay.addWidget(_label("ADDRESS",7,True,C.TEXT_DIM,Qt.AlignmentFlag.AlignLeft)); lay.addWidget(self.url)
+        self.key=QLineEdit(b.get("key") or ""); self.key.setEchoMode(QLineEdit.EchoMode.Password); self.key.setPlaceholderText("API key or gateway token")
+        lay.addWidget(_label("KEY / TOKEN",7,True,C.TEXT_DIM,Qt.AlignmentFlag.AlignLeft)); lay.addWidget(self.key)
+        self.agent_lbl=_label("OPENCLAW AGENT ID",7,True,C.TEXT_DIM,Qt.AlignmentFlag.AlignLeft); lay.addWidget(self.agent_lbl)
+        self.agent_id=QLineEdit(b.get("agent_id") or "main"); lay.addWidget(self.agent_id)
+        self.help=QLabel(""); self.help.setWordWrap(True); self.help.setFont(QFont("Courier New",7)); lay.addWidget(self.help)
+        self.status=QLabel(""); self.status.setWordWrap(True); self.status.setFont(QFont("Courier New",8)); lay.addWidget(self.status)
+        row=QHBoxLayout()
+        test=win._strip("◇  TEST",30); test.setStyleSheet(_line_button_style()); test.clicked.connect(self._test); row.addWidget(test)
+        off=win._strip("✕  DISCONNECT",30); off.setStyleSheet(f"QPushButton{{background:transparent;color:{C.RED};border:1px solid {C.RED};border-radius:3px;}}")
+        off.clicked.connect(self._disconnect); row.addWidget(off)
+        save=win._strip("✓  SAVE",30); save.setStyleSheet(f"QPushButton{{background:{C.PRI};color:{C.BG};border:1px solid {C.PRI};border-radius:3px;}}")
+        save.clicked.connect(self._save); row.addWidget(save); lay.addLayout(row)
+        self.kind.currentIndexChanged.connect(self._kind_changed); self._kind_changed(keep_url=bool(b.get("url")))
+    def _values(self):
+        return {"kind":self.kind.currentData(),"url":self.url.text().strip(),"key":self.key.text().strip(),"agent_id":self.agent_id.text().strip() or "main"}
+    def _kind_changed(self,_=None,keep_url=False):
+        k=self.kind.currentData(); info=AGENT_KINDS[k]
+        if not keep_url or not self.url.text().strip(): self.url.setText(info["url"])
+        self.help.setText(info["help"]); self.agent_lbl.setVisible(k=="openclaw"); self.agent_id.setVisible(k=="openclaw")
+    def _test(self):
+        self.status.setText("Testing…"); self.status.setStyleSheet(f"color:{C.TEXT_DIM};")
+        values=self._values()
+        def run():
+            probe=AgentBridge(type("Cfg",(),{"data":{"agent":{"bridge":values}}})())
+            try: line,ok=probe.test(),True
+            except AgentRefused as why: line,ok=str(why),False
+            except Exception as err: line,ok=f"That didn't work: {err}",False
+            self.win.ui(lambda: (self.status.setText(("✓ " if ok else "✗ ")+line),self.status.setStyleSheet(f"color:{C.GREEN if ok else C.RED};")))
+        threading.Thread(target=run,daemon=True).start()
+    def _save(self):
+        v=self._values()
+        try: v["url"]=agent_base(v["url"])
+        except AgentRefused as why: self.status.setText(f"✗ {why}"); self.status.setStyleSheet(f"color:{C.RED};"); return
+        self.win.cfg.data["agent"]["bridge"]=v; self.win.cfg.save()
+        self.win._log.append_log(f"SYS: ⇄ Connected your agent: {AGENT_KINDS[v['kind']]['label']} at {v['url']}."); self.accept()
+    def _disconnect(self):
+        self.win.cfg.data["agent"]["bridge"]={"kind":"","url":"","key":"","agent_id":"main"}; self.win.cfg.save()
+        self.win._log.append_log("SYS: ⇄ Your agent is disconnected from EDITH."); self.accept()
+
+
 class MainWindow(QMainWindow):
     _log_sig=pyqtSignal(str); _state_sig=pyqtSignal(str); _ui_sig=pyqtSignal(object)
     def __init__(self,cfg,demo=False,server_override=""):
@@ -2722,6 +2992,10 @@ class MainWindow(QMainWindow):
         ws=self._strip("▤  WORKSPACE",28); ws.setStyleSheet(_line_button_style()); ws.clicked.connect(self._agent_workspace); row.addWidget(ws)
         self._agent_unlink=self._strip("✕  UNLINK",28); self._agent_unlink.setStyleSheet(f"QPushButton{{background:transparent;color:{C.RED};border:1px solid {C.RED};border-radius:3px;}}")
         self._agent_unlink.clicked.connect(self._agent_forget); row.addWidget(self._agent_unlink); lay.addLayout(row)
+        self._bridge_label=QLabel(""); self._bridge_label.setTextFormat(Qt.TextFormat.PlainText); self._bridge_label.setWordWrap(True)
+        self._bridge_label.setFont(QFont("Courier New",8)); lay.addWidget(self._bridge_label)
+        self._bridge_btn=self._strip("⇄  CONNECT YOUR AGENT",30); self._bridge_btn.setStyleSheet(_dashed_style())
+        self._bridge_btn.clicked.connect(lambda: (self._close_drawers(),self._agent_bridge_dialog())); lay.addWidget(self._bridge_btn)
         self._setup_drawer=f
         self._agent_refresh()
         f,lay=self._drawer_frame("CONTROLS")
@@ -2772,6 +3046,11 @@ class MainWindow(QMainWindow):
             self._agent_label.setText("Connecting to EDITH's server…"+(f"\n⚠ {ag.problem}" if ag.problem else "")); self._agent_btn.setText("■  STOP"); self._agent_code.hide()
         self._agent_btn.setStyleSheet(f"QPushButton{{background:{C.PRI if not on else 'transparent'};color:{C.BG if not on else C.PRI};border:1px solid {C.PRI};border-radius:3px;}}")
         self._agent_unlink.setVisible(bool(a.get("pc_id")))
+        k=self.agent.bridge.kind()
+        self._bridge_label.setText(f"⇄ Bridge to your agent: {AGENT_KINDS[k]['label']}. Say “agent mode” on the glasses, or “ask my agent…”." if k
+                                   else "⇄ Run Hermes Agent or OpenClaw? Connect it and your glasses talk straight to it.")
+        self._bridge_label.setStyleSheet(f"color:{C.PRI if k else C.TEXT_DIM};background:transparent;")
+        self._bridge_btn.setText("⇄  YOUR AGENT: "+AGENT_KINDS[k]['label'].upper() if k else "⇄  CONNECT YOUR AGENT")
         if getattr(self,"_setup_drawer",None) is not None and self._setup_drawer.isVisible(): self._setup_drawer.adjustSize()
     def _agent_toggle(self):
         a=self.cfg.data["agent"]; a["on"]=not a.get("on"); self.cfg.save()
@@ -2783,6 +3062,9 @@ class MainWindow(QMainWindow):
         a=self.cfg.data["agent"]; a["on"]=False; self.cfg.save()
         threading.Thread(target=lambda: (self.agent.forget(),self.ui(self._agent_refresh)),daemon=True).start()
         self._log.append_log("SYS: ⌬ Glasses unlinked from this PC.")
+    def _agent_bridge_dialog(self):
+        AgentDialog(self).exec(); self._agent_refresh()
+        self.agent.need_hello=True  # tells the server which agent this PC bridges to
     def _agent_workspace(self):
         WORKSPACE.mkdir(parents=True,exist_ok=True)
         try: _open_with_system(str(WORKSPACE))

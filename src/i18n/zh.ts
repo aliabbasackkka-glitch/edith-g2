@@ -542,4 +542,11 @@ export const zh: Strings = {
   'g.status.approve': '批准吗?',
   'g.approveHint': '轻触批准，双击取消。',
   'g.approveCancelled': '已取消。电脑上没有执行任何操作。',
+  'menu.agent': '我的智能体',
+  'menu.edith': '回到 EDITH',
+  'g.status.agent': '智能体',
+  'g.agentOn': '智能体模式：直接与电脑上你自己的智能体对话。',
+  'g.agentOff': '回到 EDITH。',
+  'g.agentNone': '没有已连接的智能体。在 EDITH 电脑应用中：设置、CONNECT YOUR AGENT、LINK GLASSES。',
+  'g.agentDone': '你的智能体完成了：',
 }

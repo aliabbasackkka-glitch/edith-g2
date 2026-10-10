@@ -541,4 +541,11 @@ export const ko: Strings = {
   'g.status.approve': '승인할까요?',
   'g.approveHint': '탭하면 승인, 두 번 탭하면 취소.',
   'g.approveCancelled': '취소했어요. PC에서 아무것도 실행하지 않았어요.',
+  'menu.agent': '내 에이전트',
+  'menu.edith': 'EDITH로 돌아가기',
+  'g.status.agent': '에이전트',
+  'g.agentOn': '에이전트 모드: PC의 내 에이전트와 바로 대화해요.',
+  'g.agentOff': 'EDITH로 돌아왔어요.',
+  'g.agentNone': '연결된 에이전트가 없어요. EDITH PC 앱에서 설정, CONNECT YOUR AGENT, LINK GLASSES.',
+  'g.agentDone': '에이전트가 끝냈어요:',
 }

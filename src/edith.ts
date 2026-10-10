@@ -108,7 +108,11 @@ const TOOL_STATUS: Record<string, GlassesKey> = {
 }
 
 // The same ids as 1.x, so a menu tap means the same thing in every version.
-const MENU = { newChat: 1, switchAi: 3, second: 10, discreet: 11, subtitles: 14, translate: 15 }
+const MENU = { newChat: 1, switchAi: 3, second: 10, discreet: 11, subtitles: 14, translate: 15, agent: 20 }
+// EDITH 3: how often, and for how long, the glasses check on a long task of the wearer's agent.
+const AGENT_POLL_MS = 4000
+const AGENT_WAIT_MS = 30 * 60 * 1000
+const AGENT_MODE_KEY = 'edith.agentMode'
 
 // Questions and answers sent along as context, and messages shown when a chat opens.
 const CHAT_TURNS = 20
@@ -156,6 +160,8 @@ export class Edith {
   private last: { you: string; reply: string } | null = null
   /** EDITH 3: a job on the wearer's PC waiting for their tap to approve it. */
   private approval: { what: string; token: string } | null = null
+  /** EDITH 3: questions go straight to the wearer's own agent on their PC. */
+  private agentMode = readAgentMode()
   /** The last question as it was asked, for a second opinion. */
   private lastAsked = ''
   private prefs: Prefs = { ...DEFAULT_PREFS }
@@ -440,6 +446,46 @@ export class Edith {
     else if (id === MENU.discreet) void this.toggleDiscreet()
     else if (id === MENU.subtitles) void this.startRoom(false)
     else if (id === MENU.translate) void this.startRoom(true)
+    else if (id === MENU.agent) void this.toggleAgentMode()
+  }
+
+  /** EDITH 3: agent mode on or off. On only works once a PC with an agent is linked. */
+  private async toggleAgentMode(): Promise<void> {
+    if (this.agentMode) {
+      this.setAgentMode(false)
+      return this.goIdle(tg('g.agentOff'))
+    }
+    const status = await this.api.agentStatus().catch(() => ({ linked: false, agent: undefined }))
+    if (!status.linked || !status.agent) return this.goIdle(tg('g.agentNone'))
+    this.setAgentMode(true)
+    this.goIdle(tg('g.agentOn'))
+  }
+
+  private setAgentMode(on: boolean): void {
+    this.agentMode = on
+    try {
+      localStorage.setItem(AGENT_MODE_KEY, on ? '1' : '')
+    } catch {
+      // private storage can refuse: agent mode lasts until the app closes
+    }
+  }
+
+  /** EDITH 3: checks on a long task of the wearer's agent until its answer is in. */
+  private waitForAgent(job: string): void {
+    const started = Date.now()
+    const check = async (): Promise<void> => {
+      if (Date.now() - started > AGENT_WAIT_MS) return
+      const got = await this.api.agentResult(job).catch(() => ({ done: false, said: undefined }))
+      if (!got.done) {
+        window.setTimeout(() => void check(), AGENT_POLL_MS)
+        return
+      }
+      const line = `${tg('g.agentDone')}\n${got.said || ''}`
+      this.phone.addNote(line)
+      this.last = { you: '', reply: forGlasses(line) }
+      if (this.mode === 'idle' && !this.approval && !this.room) this.goIdle()
+    }
+    window.setTimeout(() => void check(), AGENT_POLL_MS)
   }
 
   private menuItems(): MenuItem[] {
@@ -451,6 +497,8 @@ export class Edith {
       // Says what the next tap will do.
       { id: MENU.discreet, name: this.prefs.discreet ? tg('menu.bright') : tg('menu.discreet') },
       { id: MENU.switchAi, name: tg('menu.switchAi') },
+      // EDITH 3: talk straight to their own agent, or back to EDITH.
+      { id: MENU.agent, name: this.agentMode ? tg('menu.edith') : tg('menu.agent') },
     ]
   }
 
@@ -1174,6 +1222,7 @@ export class Edith {
       if (reply.warning?.blocked) return
       // EDITH 3: a job on the wearer's PC that waits for their tap. No follow-up listening:
       // the next tap is the answer to this.
+      if (reply.agentJob) this.waitForAgent(reply.agentJob)
       if (reply.confirm) return this.askApproval(reply.confirm, reply.reply)
       this.goIdle()
       this.listenForFollowUp()
@@ -1197,6 +1246,7 @@ export class Edith {
       specialist: 'general',
       translateTo: '',
       ...(this.calendar.length ? { calendar: this.calendar } : {}),
+      ...(this.agentMode ? { agentMode: true } : {}),
     }
   }
 
@@ -1337,6 +1387,9 @@ ${tg('g.approveHint')}`
     this.hud.set({ status: `◆ ${tg('g.status.pc')}`, body: `▶ ${forGlasses(pending.what)}` })
     try {
       const done = await this.api.confirm(pending.token)
+      if (done.agentJob) this.waitForAgent(done.agentJob)
+      // The agent wants another step approved: ask again.
+      if (done.confirm) return this.askApproval(done.confirm, done.said || '')
       const line = done.ok ? `✓ ${done.said || pending.what}` : `✗ ${done.error || pending.what}`
       this.last = { you: '', reply: forGlasses(line) }
       this.phone.addNote(line)
@@ -1388,7 +1441,13 @@ ${tg('g.approveHint')}`
   /** The idle or setup status with the glasses battery, e.g. "● ONLINE  ■■■□ 76%". */
   private statusLine(): string {
     const base =
-      this.statusKind === 'setup' ? `■ ${tg('g.status.setup')}` : this.statusKind === 'more' ? `▼ ${tg('g.status.more')}` : `● ${tg('g.status.online')}`
+      this.statusKind === 'setup'
+        ? `■ ${tg('g.status.setup')}`
+        : this.statusKind === 'more'
+          ? `▼ ${tg('g.status.more')}`
+          : this.agentMode
+            ? `◆ ${tg('g.status.agent')}`
+            : `● ${tg('g.status.online')}`
     const { level, charging } = this.battery
     if (typeof level !== 'number' || !Number.isFinite(level)) return base
     const pct = Math.max(0, Math.min(100, Math.round(level)))
@@ -2069,4 +2128,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
       },
     )
   })
+}
+
+/** EDITH 3: whether agent mode was left on. */
+function readAgentMode(): boolean {
+  try {
+    return localStorage.getItem(AGENT_MODE_KEY) === '1'
+  } catch {
+    return false
+  }
 }
