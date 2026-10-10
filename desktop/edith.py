@@ -526,6 +526,36 @@ def shrink_image(img):
     raise ValueError("That photo is too big to send.")
 
 
+# Microsoft's free voices refuse a browser version that's too old, and edge-tts names an
+# older one than they now accept. This tells it a current one (only ever raising it).
+EDGE_BROWSER = "152.0.3800.70"
+
+
+def edge_tts_fresh():
+    import edge_tts
+    from edge_tts import constants as _c
+    def major(v):
+        try:
+            return int(str(v).split(".")[0])
+        except ValueError:
+            return 0
+    if major(getattr(_c, "CHROMIUM_FULL_VERSION", "0")) >= major(EDGE_BROWSER):
+        return edge_tts
+    for mod_name in ("constants", "drm", "communicate", "voices"):
+        mod = getattr(edge_tts, mod_name, None) or __import__(f"edge_tts.{mod_name}", fromlist=["x"])
+        for name, value in (("CHROMIUM_FULL_VERSION", EDGE_BROWSER), ("CHROMIUM_MAJOR_VERSION", EDGE_BROWSER.split(".")[0]),
+                            ("SEC_MS_GEC_VERSION", f"1-{EDGE_BROWSER}")):
+            if hasattr(mod, name):
+                setattr(mod, name, value)
+        for dict_name in ("BASE_HEADERS", "WSS_HEADERS", "VOICE_HEADERS"):
+            headers = getattr(mod, dict_name, None)
+            if isinstance(headers, dict):
+                for k, v in list(headers.items()):
+                    if isinstance(v, str):
+                        headers[k] = v.replace(getattr(_c, "CHROMIUM_MAJOR_VERSION", "143"), EDGE_BROWSER.split(".")[0])
+    return edge_tts
+
+
 def voice_module_ready():
     try:
         return importlib.util.find_spec("edge_tts") is not None
@@ -2798,6 +2828,7 @@ class AgentDialog(QDialog):
         save=win._strip("✓  SAVE",30); save.setStyleSheet(f"QPushButton{{background:{C.PRI};color:{C.BG};border:1px solid {C.PRI};border-radius:3px;}}")
         save.clicked.connect(self._save); row.addWidget(save); lay.addLayout(row)
         self.kind.currentIndexChanged.connect(self._kind_changed); self._kind_changed(keep_url=bool(b.get("url")))
+        intro.setMinimumHeight(intro.heightForWidth(max(300,self.minimumWidth()-90))+6); self.adjustSize()
     def _values(self):
         return {"kind":self.kind.currentData(),"url":self.url.text().strip(),"key":self.key.text().strip(),"agent_id":self.agent_id.text().strip() or "main"}
     def _kind_changed(self,_=None,keep_url=False):
@@ -3647,7 +3678,7 @@ class MainWindow(QMainWindow):
         def work():
             path=None
             try:
-                import edge_tts
+                edge_tts=edge_tts_fresh()
                 fd,path=tempfile.mkstemp(prefix="edith_voice_",suffix=".mp3"); os.close(fd)
                 words=[]
                 async def synth():
@@ -3660,7 +3691,13 @@ class MainWindow(QMainWindow):
                             elif kind in ("WordBoundary","SentenceBoundary"):
                                 # offsets come in 100-nanosecond ticks
                                 words.append((chunk.get("offset",0)/10000,chunk.get("duration",0)/10000,kind))
-                asyncio.run(synth())
+                # Microsoft's free voices turn some requests away at random: try again a few times.
+                for attempt in range(4):
+                    try:
+                        words.clear(); asyncio.run(synth()); break
+                    except Exception:
+                        if attempt==3: raise
+                        time.sleep(0.6*(attempt+1))
                 if os.path.getsize(path)<200: raise RuntimeError("no audio")
                 self.ui(lambda: self._play(path,token,words,sample=sample))
             except Exception:
