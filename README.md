@@ -30,6 +30,31 @@ button (or Space) and speak. Drag the sphere to spin it; it bounces when EDITH t
 - **G2 glasses:** EDITH on Even Hub. Hold the temple or ring, ask anything, and the answer appears
   in front of you as it is written.
 
+## Compatible AIs
+
+Bring a key from any of these. Gemini and Groq give free keys. Each key stays on your device.
+
+| AI | Get a key | Free key | Hears you | EDITH's voice |
+| --- | --- | :---: | :---: | :---: |
+| [Google Gemini](https://ai.google.dev) | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | ✅ | ✅ | ✅ 30 voices |
+| [Groq](https://groq.com) | [console.groq.com/keys](https://console.groq.com/keys) | ✅ | ✅ | ✅ 12 voices |
+| [OpenAI (ChatGPT)](https://platform.openai.com) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | | ✅ | ✅ 13 voices |
+| [Anthropic (Claude)](https://www.anthropic.com/api) | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) | | with a second key | with a second key |
+| [xAI (Grok)](https://x.ai/api) | [console.x.ai](https://console.x.ai) | | ✅ | free voices |
+| [OpenRouter](https://openrouter.ai) (hundreds of models) | [openrouter.ai/keys](https://openrouter.ai/keys), or **Connect OpenRouter** with no key to copy | free models | ✅ | free voices |
+| [DeepSeek](https://platform.deepseek.com) | [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) | | with a second key | with a second key |
+| [Mistral](https://mistral.ai) | [console.mistral.ai/api-keys](https://console.mistral.ai/api-keys) | | ✅ | free voices |
+| Your own server ([Ollama](https://ollama.com), [LM Studio](https://lmstudio.ai), [vLLM](https://docs.vllm.ai)…) | any OpenAI-compatible address | ✅ | with a second key | with a second key |
+
+- **"Hears you"** means EDITH can understand speech with that key. For AIs that can't, add a free Groq or Gemini key just for voice.
+- **"EDITH's voice"** is the voice that reads answers aloud on the website and PC app. Where it says "free voices", the PC app uses free [Microsoft Edge voices](https://pypi.org/project/edge-tts/) and the website uses your browser's voice.
+
+**Your own agent (EDITH 3):** EDITH can also act as the bridge to an agent on your PC.
+
+- [Hermes Agent](https://hermes-agent.nousresearch.com) (Nous Research), through its [API server](https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server).
+- [OpenClaw](https://docs.openclaw.ai), through its [OpenAI-compatible gateway](https://docs.openclaw.ai/gateway/openai-http-api).
+- Any agent with an OpenAI-style `/v1/chat/completions` API.
+
 ## EDITH 3 (beta): your glasses, your agent
 
 EDITH is a **bridge between your G2 glasses and the AI agent you already run on your computer**:
@@ -88,7 +113,7 @@ and **PAUSE** or **UNLINK** stops it at once.
 - **Talk, read the answer.** Hold to talk like a walkie-talkie, or tap and speak. Answers
   stream onto the display, and EDITH keeps listening for a moment afterwards so you can
   carry on without touching anything.
-- **Any AI, your key.** Groq (free and fast), Google Gemini (free), OpenAI, Anthropic Claude,
+- **Any AI, your key** ([see the list](#compatible-ais)). Groq (free and fast), Google Gemini (free), OpenAI, Anthropic Claude,
   xAI Grok, OpenRouter, DeepSeek, Mistral, or your own OpenAI-compatible server. Pick the
   model you want. **Connect OpenRouter** works without copying a key at all.
 - **Voice for every AI.** If your AI can't hear (Claude, DeepSeek), add a second key just
