@@ -1,0 +1,6 @@
+# EDITH: search engines and AI assistants are welcome to read and cite the public pages.
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://edith.starktech.workers.dev/sitemap.xml

@@ -1,0 +1,14 @@
+# Cloudflare and Netlify read this file. The website and About page are for search engines;
+# the glasses app and the sign-in and OpenRouter pages are not.
+/
+  X-Robots-Tag: noindex, follow
+/index.html
+  X-Robots-Tag: noindex, follow
+/signin
+  X-Robots-Tag: noindex, nofollow
+/signin.html
+  X-Robots-Tag: noindex, nofollow
+/connect
+  X-Robots-Tag: noindex, nofollow
+/connect.html
+  X-Robots-Tag: noindex, nofollow

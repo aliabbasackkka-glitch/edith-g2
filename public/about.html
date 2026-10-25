@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#050403" />
+    <title>EDITH: free AI assistant for any AI, on the web, PC and Even G2 glasses</title>
+    <meta
+      name="description"
+      content="EDITH is a free, open-source AI assistant. Talk to Gemini, Groq, ChatGPT, Claude, Grok and more by voice or text, with your own key, in your browser, on your PC or on Even Realities G2 smart glasses."
+    />
+    <link rel="canonical" href="https://edith.starktech.workers.dev/about" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="EDITH" />
+    <meta property="og:url" content="https://edith.starktech.workers.dev/about" />
+    <meta property="og:title" content="EDITH: talk to any AI, free and open source" />
+    <meta
+      property="og:description"
+      content="Talk to Gemini, Groq, ChatGPT, Claude and more by voice or text, with your own key. In your browser, on your PC or on Even Realities G2 glasses."
+    />
+    <meta property="og:image" content="https://edith.starktech.workers.dev/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="EDITH's gold network sphere, with the words: Talk to any AI. Free and open source." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://edith.starktech.workers.dev/#app",
+            "name": "EDITH",
+            "alternateName": "E.D.I.T.H",
+            "description": "A free, open-source AI assistant: talk to any AI by voice or text with your own key, in your browser, on your PC or on Even Realities G2 smart glasses.",
+            "url": "https://edith.starktech.workers.dev/web",
+            "applicationCategory": "UtilitiesApplication",
+            "operatingSystem": "Web, Windows, macOS, Even Realities G2",
+            "isAccessibleForFree": true,
+            "license": "https://opensource.org/licenses/MIT",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+            "image": "https://edith.starktech.workers.dev/og.png",
+            "author": { "@type": "Person", "name": "Yahya" },
+            "sameAs": [
+              "https://github.com/aliabbasackkka-glitch/edith-g2",
+              "https://www.youtube.com/@edith-g2",
+              "https://discord.gg/pfzcx63zv"
+            ]
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "What is EDITH?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "EDITH is a free, open-source AI assistant. You talk to any AI by voice or text, with your own API key, in your browser, in a desktop app for Windows and Mac, or on Even Realities G2 smart glasses."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Is EDITH free?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. EDITH is free and MIT-licensed, and the website needs no sign-up. You bring a key from an AI company; Google Gemini and Groq give free keys."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Which AIs does EDITH work with?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Google Gemini, Groq, OpenAI (ChatGPT), Anthropic (Claude), xAI (Grok), OpenRouter, DeepSeek, Mistral, and your own OpenAI-compatible server such as Ollama, LM Studio or vLLM."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Where is my API key kept?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "On your device: in your browser's storage on the website, or in a settings file in the PC app. It goes to EDITH's server only with each request, and is never stored or logged there."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Does EDITH work on Even Realities G2 glasses?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Install EDITH from Even Hub, hold the temple or ring, ask anything, and the answer appears on the display. It also does subtitles, live translation, a second opinion from another AI, discreet mode, calendars, web search, weather and headlines, in nine languages."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can I use Hermes Agent or OpenClaw from my G2 glasses?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. EDITH 3 (beta) is a bridge between G2 glasses and the agent you run on your computer: Hermes Agent, OpenClaw, or anything with an OpenAI-style API. Link the glasses in EDITH's PC app, talk on the glasses, and approve risky actions with a tap. Your agent stays on your own computer."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can EDITH read answers aloud?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. On the website and PC app, EDITH reads answers aloud in voices from OpenAI, Google Gemini or Groq, using your own key, or in free voices for other AIs."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+    <style>
+      :root {
+        --bg: #050403;
+        --panel: #0b0904;
+        --border: #352b12;
+        --pri: #f5c542;
+        --bright: #fef991;
+        --text: #f1dfa0;
+        --dim: #9c7f2a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: radial-gradient(ellipse at top, #1a1405 0%, #050403 70%) fixed;
+        background-color: var(--bg);
+        color: var(--text);
+        font: 16px/1.65 'Courier New', Consolas, monospace;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 40px 16px 64px;
+      }
+      .brand {
+        color: var(--dim);
+        font-size: 13px;
+        letter-spacing: 4px;
+      }
+      h1 {
+        margin: 6px 0 12px;
+        color: var(--pri);
+        font-size: clamp(30px, 7vw, 46px);
+        line-height: 1.1;
+        letter-spacing: 3px;
+      }
+      .lead {
+        font-size: 18px;
+      }
+      h2 {
+        margin: 40px 0 12px;
+        color: var(--pri);
+        font-size: 15px;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+      }
+      h3 {
+        margin: 0 0 6px;
+        color: var(--bright);
+        font-size: 16px;
+      }
+      p,
+      li {
+        margin: 0 0 10px;
+      }
+      ul {
+        padding-left: 20px;
+      }
+      a {
+        color: var(--pri);
+      }
+      .cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 22px 0 6px;
+      }
+      .btn {
+        display: inline-block;
+        padding: 11px 18px;
+        border: 1px solid var(--pri);
+        border-radius: 3px;
+        color: var(--pri);
+        font-weight: bold;
+        letter-spacing: 2px;
+        text-decoration: none;
+      }
+      .btn.go {
+        background: var(--pri);
+        color: var(--bg);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+      .card,
+      details {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 14px 16px;
+      }
+      .card p {
+        margin: 0;
+      }
+      details {
+        margin-bottom: 10px;
+      }
+      summary {
+        color: var(--bright);
+        font-weight: bold;
+        cursor: pointer;
+      }
+      details p {
+        margin: 10px 0 0;
+      }
+      .scroll {
+        overflow-x: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 15px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px 10px 8px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      th {
+        color: var(--dim);
+        font-size: 12px;
+        letter-spacing: 2px;
+      }
+      footer {
+        margin-top: 48px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
+        color: var(--dim);
+        font-size: 13px;
+        letter-spacing: 1px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">E.D.I.T.H</div>
+      <h1>Talk to any AI.</h1>
+      <p class="lead">
+        EDITH is a free, open-source AI assistant. Talk to Gemini, Groq, ChatGPT, Claude, Grok and more by voice or
+        text, with your own key: in your browser, on your PC, or on Even Realities G2 smart glasses.
+      </p>
+      <div class="cta">
+        <a class="btn go" href="/web">&#9656; TRY EDITH IN YOUR BROWSER</a>
+        <a class="btn" href="https://github.com/aliabbasackkka-glitch/edith-g2">SOURCE ON GITHUB</a>
+      </div>
+      <p>Free &middot; no sign-up &middot; bring a free Groq or Gemini key</p>
+
+      <h2>Three ways to use EDITH</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Website</h3>
+          <p>
+            Open <a href="/web">EDITH for the web</a>, pick an AI and paste its key. Type, or hold the talk button
+            (or Space) and speak. Nothing to install.
+          </p>
+        </div>
+        <div class="card">
+          <h3>PC app</h3>
+          <p>
+            A desktop window with a live HUD that speaks its answers, for Windows and Mac. It is one Python file in the
+            <a href="https://github.com/aliabbasackkka-glitch/edith-g2/tree/main/desktop">GitHub repo</a>.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Even G2 glasses</h3>
+          <p>
+            Install EDITH from Even Hub. Hold the temple or ring, ask anything, and the answer appears in front of you as
+            it is written.
+          </p>
+        </div>
+      </div>
+
+      <h2>Compatible AIs</h2>
+      <p>Bring a key from any of these. Gemini and Groq give free keys.</p>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>AI</th><th>FREE KEY</th><th>VOICE INPUT</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Google Gemini</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>Groq</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>OpenAI (ChatGPT)</td><td>No</td><td>Yes</td></tr>
+            <tr><td>Anthropic (Claude)</td><td>No</td><td>With a second key</td></tr>
+            <tr><td>xAI (Grok)</td><td>No</td><td>Yes</td></tr>
+            <tr><td>OpenRouter (hundreds of models)</td><td>Free models</td><td>Yes</td></tr>
+            <tr><td>DeepSeek</td><td>No</td><td>With a second key</td></tr>
+            <tr><td>Mistral</td><td>No</td><td>Yes</td></tr>
+            <tr><td>Your own server (Ollama, LM Studio, vLLM)</td><td>Yes</td><td>With a second key</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>"With a second key" means you add a free Groq or Gemini key just for understanding speech.</p>
+
+      <h2>What EDITH does</h2>
+      <ul>
+        <li><b>Talk or type.</b> Answers stream in as they are written, and EDITH remembers what you tell it.</li>
+        <li><b>Talks back.</b> Answers read aloud in voices from OpenAI, Google Gemini or Groq, with your key, or in free voices.</li>
+        <li><b>Useful out of the box.</b> Web search, Wikipedia, weather, news headlines, a daily briefing and reading a link.</li>
+        <li><b>Saved chats</b>, named for you and searchable.</li>
+        <li><b>On the glasses:</b> subtitles and live translation of whoever is talking to you, a second opinion from another AI, discreet mode and calendars.</li>
+        <li><b>Your own agent on your glasses (EDITH 3, beta):</b> a bridge from the G2 to Hermes Agent, OpenClaw or any OpenAI-style agent on your PC, with risky actions approved by a tap.</li>
+        <li><b>Nine languages:</b> English, German, French, Spanish, Italian, Chinese, Japanese, Korean and Arabic.</li>
+      </ul>
+
+      <h2>Questions</h2>
+      <details open>
+        <summary>What is EDITH?</summary>
+        <p>
+          EDITH is a free, open-source AI assistant. You talk to any AI by voice or text, with your own API key, in your
+          browser, in a desktop app for Windows and Mac, or on Even Realities G2 smart glasses.
+        </p>
+      </details>
+      <details>
+        <summary>Is EDITH free?</summary>
+        <p>
+          Yes. EDITH is free and MIT-licensed, and the website needs no sign-up. You bring a key from an AI company;
+          Google Gemini and Groq give free keys.
+        </p>
+      </details>
+      <details>
+        <summary>Which AIs does EDITH work with?</summary>
+        <p>
+          Google Gemini, Groq, OpenAI (ChatGPT), Anthropic (Claude), xAI (Grok), OpenRouter, DeepSeek, Mistral, and your
+          own OpenAI-compatible server such as Ollama, LM Studio or vLLM.
+        </p>
+      </details>
+      <details>
+        <summary>Where is my API key kept?</summary>
+        <p>
+          On your device: in your browser's storage on the website, or in a settings file in the PC app. It goes to
+          EDITH's server only with each request, and is never stored or logged there. See the
+          <a href="/privacy">privacy policy</a>.
+        </p>
+      </details>
+      <details>
+        <summary>Does EDITH work on Even Realities G2 glasses?</summary>
+        <p>
+          Yes. Install EDITH from Even Hub, hold the temple or ring, ask anything, and the answer appears on the display.
+          It also does subtitles, live translation, a second opinion from another AI, discreet mode, calendars, web
+          search, weather and headlines, in nine languages.
+        </p>
+      </details>
+      <details>
+        <summary>Can I use Hermes Agent or OpenClaw from my G2 glasses?</summary>
+        <p>
+          Yes. EDITH 3 (beta) is a bridge between G2 glasses and the agent you run on your computer: Hermes Agent,
+          OpenClaw, or anything with an OpenAI-style API. Link the glasses in EDITH's PC app, talk on the glasses, and
+          approve risky actions with a tap. Your agent stays on your own computer.
+        </p>
+      </details>
+      <details>
+        <summary>Can EDITH read answers aloud?</summary>
+        <p>
+          Yes. On the website and PC app, EDITH reads answers aloud in voices from OpenAI, Google Gemini or Groq, using
+          your own key, or in free voices for other AIs.
+        </p>
+      </details>
+
+      <footer>
+        E.D.I.T.H &middot; made by Yahya, an independent developer &middot;
+        <a href="/web">WEBSITE</a> &middot;
+        <a href="https://github.com/aliabbasackkka-glitch/edith-g2">GITHUB</a> &middot;
+        <a href="https://www.youtube.com/@edith-g2">YOUTUBE</a> &middot;
+        <a href="https://discord.gg/pfzcx63zv">DISCORD</a> &middot;
+        <a href="/privacy">PRIVACY</a>
+      </footer>
+    </main>
+  </body>
+</html>

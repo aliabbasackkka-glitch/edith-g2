@@ -6,17 +6,49 @@
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#050403" />
     <meta name="referrer" content="no-referrer" />
+    <title>EDITH: free AI voice assistant for Gemini, ChatGPT and Claude</title>
     <meta
       name="description"
-      content="E.D.I.T.H: talk to any AI by voice or text, in your browser. Bring your own key for Gemini, Groq, ChatGPT, Claude, Grok, OpenRouter, DeepSeek or Mistral. Keys stay in your browser."
+      content="EDITH is a free, open-source AI assistant in your browser. Talk to Gemini, Groq, ChatGPT, Claude, Grok, OpenRouter, DeepSeek or Mistral by voice or text, with your own key. No sign-up; your key stays in your browser."
     />
-    <meta property="og:title" content="E.D.I.T.H - Talk to any AI" />
-    <meta property="og:description" content="Talk to any AI by voice or text, in your browser. Your keys stay on your device." />
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%23050403'/%3E%3Ccircle cx='32' cy='32' r='25' fill='none' stroke='%23f5c542' stroke-width='2' opacity='.7'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%23f5c542' stroke-width='2'/%3E%3Cpath d='M32 32 L55 22 A25 25 0 0 1 57 32 Z' fill='%23f5c542' opacity='.55'/%3E%3Ccircle cx='32' cy='32' r='4' fill='%23fef991'/%3E%3C/svg%3E"
-    />
-    <title>E.D.I.T.H</title>
+    <link rel="canonical" href="https://edith.starktech.workers.dev/web" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="EDITH" />
+    <meta property="og:url" content="https://edith.starktech.workers.dev/web" />
+    <meta property="og:title" content="E.D.I.T.H: talk to any AI" />
+    <meta property="og:description" content="Free and open source. Talk to Gemini, Groq, ChatGPT, Claude and more by voice or text, with your own key." />
+    <meta property="og:image" content="https://edith.starktech.workers.dev/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="EDITH's gold network sphere, with the words: Talk to any AI. Free and open source." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "@id": "https://edith.starktech.workers.dev/#app",
+        "name": "EDITH",
+        "alternateName": "E.D.I.T.H",
+        "description": "A free, open-source AI assistant: talk to any AI by voice or text with your own key, in your browser, on your PC or on Even Realities G2 smart glasses.",
+        "url": "https://edith.starktech.workers.dev/web",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Any (web browser)",
+        "browserRequirements": "Requires JavaScript",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "image": "https://edith.starktech.workers.dev/og.png",
+        "author": { "@type": "Person", "name": "Yahya" },
+        "sameAs": [
+          "https://github.com/aliabbasackkka-glitch/edith-g2",
+          "https://www.youtube.com/@edith-g2",
+          "https://discord.gg/pfzcx63zv"
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="audioInd" role="button" tabindex="0" hidden>
@@ -146,6 +178,8 @@
         <div><span class="conn" id="status">CONNECTING...</span></div>
         <div>E.D.I.T.H &nbsp;&middot;&nbsp; WEB EDITION</div>
         <div class="links">
+          <a href="/about">ABOUT</a>
+          &nbsp;&middot;&nbsp;
           <a href="/privacy" id="privacyLink">PRIVACY</a>
           &nbsp;&middot;&nbsp;
           <a href="https://github.com/aliabbasackkka-glitch/edith-g2" target="_blank" rel="noopener">OPEN SOURCE &middot; MIT</a>
@@ -154,6 +188,13 @@
         </div>
       </footer>
     </div>
+
+    <noscript>
+      <p>
+        E.D.I.T.H is a free, open-source AI assistant: talk to Gemini, Groq, ChatGPT, Claude, Grok and more by voice or
+        text, with your own key. It needs JavaScript. <a href="/about">What EDITH is and how it works</a>.
+      </p>
+    </noscript>
 
     <!-- Saved chats: a JARVIS-style modal -->
     <div class="am-wrap" id="chats" role="dialog" aria-modal="true" aria-labelledby="chTitle" hidden>

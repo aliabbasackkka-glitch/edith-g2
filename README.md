@@ -194,6 +194,9 @@ npx wrangler login
 4. **Open it on your glasses.** `npm run qr` shows a QR code to scan with the Even app, or
    `npm run pack` builds `edith.ehpk` to upload on [Even Hub](https://hub.evenrealities.com).
    To publish your own build, change `package_id` and `author` in `app.json` first.
+5. **Your own address in search results.** `web.html`, `public/about.html`, `public/robots.txt`,
+   `public/sitemap.xml` and `public/llms.txt` name EDITH's official site. Replace
+   `edith.starktech.workers.dev` with your address so search engines and AI assistants credit your copy.
 
 That's all EDITH needs. Everything below is optional.
 

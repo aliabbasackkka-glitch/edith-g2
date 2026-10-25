@@ -1,0 +1,22 @@
+# EDITH
+
+> EDITH (E.D.I.T.H) is a free, open-source (MIT) AI assistant. You talk to any AI by voice or text, with your own API key: in your browser, in a desktop app for Windows and Mac, or on Even Realities G2 smart glasses. No sign-up on the website, and your key stays on your device.
+
+- Website (nothing to install): https://edith.starktech.workers.dev/web
+- Works with: Google Gemini (free key), Groq (free key), OpenAI (ChatGPT), Anthropic (Claude), xAI (Grok), OpenRouter (hundreds of models; connect without copying a key), DeepSeek, Mistral, and any OpenAI-compatible server (Ollama, LM Studio, vLLM).
+- Voice: talk to it, and it reads answers aloud in voices from OpenAI, Google Gemini or Groq with your own key, or in free voices.
+- On Even Realities G2 glasses (install from Even Hub): hold the temple or ring and ask; the answer appears on the display. Also subtitles, live translation, a second opinion from another AI, discreet mode, calendars, web search, weather and headlines, in nine languages.
+- EDITH 3 (beta): a bridge from G2 glasses to the AI agent you run on your computer (Hermes Agent, OpenClaw, or any OpenAI-style API), set up in EDITH's PC app. Risky actions are approved with a tap on the glasses, and the agent stays on your own computer.
+- Made by Yahya, an independent developer.
+
+## Pages
+
+- [About EDITH](https://edith.starktech.workers.dev/about): what it does, compatible AIs, and common questions
+- [EDITH for the web](https://edith.starktech.workers.dev/web): the assistant itself (needs JavaScript)
+- [Privacy policy](https://edith.starktech.workers.dev/privacy): what is sent where, and what is never kept
+
+## Source and community
+
+- [GitHub repository](https://github.com/aliabbasackkka-glitch/edith-g2): source code, setup for the PC app, and self-hosting
+- [YouTube @edith-g2](https://www.youtube.com/@edith-g2): short demos
+- [Discord](https://discord.gg/pfzcx63zv): help and feedback

@@ -1,0 +1,13 @@
+{
+  "name": "E.D.I.T.H",
+  "short_name": "EDITH",
+  "description": "Talk to any AI by voice or text, with your own key.",
+  "start_url": "/web",
+  "display": "standalone",
+  "background_color": "#050403",
+  "theme_color": "#050403",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
