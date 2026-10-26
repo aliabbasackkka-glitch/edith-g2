@@ -526,41 +526,32 @@ def shrink_image(img):
     raise ValueError("That photo is too big to send.")
 
 
-# Microsoft's free voices refuse a browser version that's too old, and edge-tts names an
-# older one than they now accept. This tells it a current one (only ever raising it).
-EDGE_BROWSER = "152.0.3800.70"
+# Since October 2026 Microsoft's free voices only accept the newer (v2) request token, which
+# edge-tts makes from version 7.3 on. An older edge-tts gets "403" every time, so EDITH upgrades it.
+EDGE_TTS_MIN = (7, 3)
+
+
+def edge_tts_version():
+    try:
+        from importlib.metadata import version
+        return tuple(int(part) for part in version("edge-tts").split(".")[:2])
+    except Exception:
+        return None
 
 
 def edge_tts_fresh():
     import edge_tts
-    from edge_tts import constants as _c
-    def major(v):
-        try:
-            return int(str(v).split(".")[0])
-        except ValueError:
-            return 0
-    if major(getattr(_c, "CHROMIUM_FULL_VERSION", "0")) >= major(EDGE_BROWSER):
-        return edge_tts
-    for mod_name in ("constants", "drm", "communicate", "voices"):
-        mod = getattr(edge_tts, mod_name, None) or __import__(f"edge_tts.{mod_name}", fromlist=["x"])
-        for name, value in (("CHROMIUM_FULL_VERSION", EDGE_BROWSER), ("CHROMIUM_MAJOR_VERSION", EDGE_BROWSER.split(".")[0]),
-                            ("SEC_MS_GEC_VERSION", f"1-{EDGE_BROWSER}")):
-            if hasattr(mod, name):
-                setattr(mod, name, value)
-        for dict_name in ("BASE_HEADERS", "WSS_HEADERS", "VOICE_HEADERS"):
-            headers = getattr(mod, dict_name, None)
-            if isinstance(headers, dict):
-                for k, v in list(headers.items()):
-                    if isinstance(v, str):
-                        headers[k] = v.replace(getattr(_c, "CHROMIUM_MAJOR_VERSION", "143"), EDGE_BROWSER.split(".")[0])
     return edge_tts
 
 
 def voice_module_ready():
     try:
-        return importlib.util.find_spec("edge_tts") is not None
+        if importlib.util.find_spec("edge_tts") is None:
+            return False
     except Exception:
         return False
+    found = edge_tts_version()
+    return found is None or found >= EDGE_TTS_MIN
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
@@ -3610,7 +3601,7 @@ class MainWindow(QMainWindow):
             self._voice_install_failed=True; self._log.append_log("SYS: The voice (edge-tts) isn't installed, so answers stay text only."); return False
         self._voice_installing=True; self._log.append_log("SYS: Installing EDITH's voice (edge-tts), one moment…")
         def work():
-            ok=pip_install(["edge-tts"],quiet=True) and voice_module_ready()
+            ok=pip_install([f"edge-tts>={EDGE_TTS_MIN[0]}.{EDGE_TTS_MIN[1]}"],quiet=True) and voice_module_ready()
             self.ui(lambda: self._voice_installed(ok))
         threading.Thread(target=work,daemon=True).start(); return False
     def _voice_installed(self,ok):
