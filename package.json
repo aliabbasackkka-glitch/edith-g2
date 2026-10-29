@@ -1,7 +1,7 @@
 {
   "name": "edith",
   "private": true,
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "EDITH - a voice assistant for Even Realities G2 glasses",
   "license": "MIT",
   "type": "module",

@@ -107,6 +107,9 @@ const TOOL_STATUS: Record<string, GlassesKey> = {
   pc_tasks: 'g.status.pc',
 }
 
+// AIs whose keys need credits before they answer: "out of quota" there means "add credits", not "wait".
+const NEEDS_CREDITS = new Set(['openai', 'anthropic', 'xai', 'deepseek', 'mistral', 'openrouter'])
+
 // The same ids as 1.x, so a menu tap means the same thing in every version.
 const MENU = { newChat: 1, switchAi: 3, second: 10, discreet: 11, subtitles: 14, translate: 15, agent: 20 }
 // EDITH 3: how often, and for how long, the glasses check on a long task of the wearer's agent.
@@ -1325,6 +1328,11 @@ export class Edith {
         this.phone.addNote(t('err.model', { provider }), 'error')
         return this.showError(tg('g.status.model'), tg('g.err.model', { provider: onGlasses }), tg('g.pickModel'))
       case 'quota':
+        // A paid AI's key without credits will never work later on its own: say what fixes it.
+        if (NEEDS_CREDITS.has(aiId)) {
+          this.phone.addNote(t('err.credits', { provider }), 'error')
+          return this.showError(tg('g.status.noQuota'), tg('g.err.credits', { provider: onGlasses }), tg('g.useFreeAi'))
+        }
         this.phone.addNote(t('err.quota', { provider }), 'error')
         return this.showError(tg('g.status.noQuota'), tg('g.err.quota', { provider: onGlasses }), tg('g.tryLater'))
       case 'offline': {
@@ -1348,6 +1356,10 @@ export class Edith {
         if (error.serverKind === 'refused') {
           this.phone.addNote(t('err.refused', { provider }), 'error')
           return this.showError(tg('g.status.error'), tg('g.err.refused', { provider: onGlasses }), tg('g.tapRetry'))
+        }
+        if (error.serverKind === 'region') {
+          this.phone.addNote(t('err.region'), 'error')
+          return this.showError(tg('g.status.error'), tg('g.err.region'), tg('g.addGroq'))
         }
         if (error.serverKind === 'blocked') {
           const why = error.ban.why

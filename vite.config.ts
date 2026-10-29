@@ -1,5 +1,17 @@
-import { readFileSync } from 'node:fs'
-import { defineConfig, loadEnv } from 'vite'
+import { cpSync, existsSync, readFileSync } from 'node:fs'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
+
+// The website's own files (the About page, sitemap, robots.txt, llms.txt, icons, share card,
+// _headers) sit in site-public/ and are copied into the site build only: they link to GitHub,
+// YouTube and Discord, and Even Hub turns down a package that mentions addresses its whitelist
+// doesn't cover.
+const siteFiles = (packaged: boolean): Plugin => ({
+  name: 'edith-site-files',
+  apply: 'build',
+  closeBundle() {
+    if (!packaged && existsSync('site-public')) cpSync('site-public', 'dist', { recursive: true })
+  },
+})
 
 // The version testers see in the Even app, so Settings can show the same one.
 const appVersion = String(JSON.parse(readFileSync('app.json', 'utf8')).version || '')
@@ -22,6 +34,7 @@ export default defineConfig(({ command, mode }) => {
   return {
     // Relative asset paths inside the .ehpk, so it loads however the Even app serves it.
     base: packaged ? './' : '/',
+    plugins: [siteFiles(packaged)],
     server: {
       host: true, // bind to the LAN so the phone can load the dev server
       port: 5173,

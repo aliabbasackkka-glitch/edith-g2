@@ -29,6 +29,9 @@ const modelCooldown = new Map(); // "access id|model" -> until
 const MODEL_COOLDOWN_MS = 20 * 60 * 1000;
 const OVERLOAD_COOLDOWN_MS = 60 * 1000;
 
+// Google doesn't serve Gemini in some regions, whatever the model: no point trying the others.
+const regionBlocked = (text) => /user location is not supported/i.test(text || "");
+
 const keyRejected = (status, text) =>
   (status === 400 && text.includes("API_KEY_INVALID")) || status === 401 || status === 403;
 
@@ -61,7 +64,9 @@ async function openLadder(access, models, method, body, signal) {
     if (out.res) return { res: out.res, model };
     last = out;
     if (out.exhausted || out.keyRejected) break; // out of time, or the key itself is bad
-    if (out.status === 429 || (out.status === 400 && models.length > 1)) {
+    if (regionBlocked(out.text)) break;
+    // 404: a model Google has retired, or no longer gives new keys; the next one may still work.
+    if (out.status === 429 || ((out.status === 400 || out.status === 404) && models.length > 1)) {
       modelCooldown.set(`${access.id}|${model}`, Date.now() + MODEL_COOLDOWN_MS);
       continue;
     }
@@ -74,6 +79,9 @@ async function openLadder(access, models, method, body, signal) {
   }
 
   if (last.keyRejected) throw new ProviderError("key", "Google rejected this Gemini API key.", last.status);
+  if (regionBlocked(last.text)) {
+    throw new ProviderError("region", "Google doesn't offer Gemini in your region. Switch to Groq (free) in EDITH's settings.", last.status);
+  }
   if (last.status === 429 || last.exhausted) {
     throw new ProviderError("quota", "Your Gemini key is out of free quota for now. It resets daily.", 429);
   }
@@ -98,7 +106,7 @@ function toGeminiSchema(schema) {
  * each piece of answer text, and returns { text, toolCalls }.
  */
 export function geminiConversation({ access, model, system, history, userText, image, tools, signal }) {
-  const models = !model || model === "auto" ? chatModels() : [model];
+  const models = !model || model === "auto" ? chatModels() : [model, ...chatModels().filter((m) => m !== model)];
   const contents = [
     ...history.map((h) => ({ role: h.role === "assistant" ? "model" : "user", parts: [{ text: h.text }] })),
     // A photo taken on the phone travels with the question it belongs to (1.7.0).
